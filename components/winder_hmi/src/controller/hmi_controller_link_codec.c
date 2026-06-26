@@ -35,6 +35,108 @@ static bool encode_speed_override(
     return true;
 }
 
+static bool read_original_command(
+    winder_link_payload_reader_t *reader,
+    uint16_t *out_original_seq,
+    winder_link_msg_type_t *out_original_type)
+{
+    uint8_t original_type = 0U;
+
+    if (!winder_link_payload_read_u16_le(reader, out_original_seq)) {
+        return false;
+    }
+    if (!winder_link_payload_read_u8(reader, &original_type)) {
+        return false;
+    }
+
+    *out_original_type = (winder_link_msg_type_t)original_type;
+    return true;
+}
+
+static bool decode_command_accepted(
+    winder_link_payload_reader_t *reader,
+    hmi_controller_link_decoded_t *out_decoded)
+{
+    hmi_controller_link_command_accepted_t accepted = {0};
+
+    if (!read_original_command(reader, &accepted.original_seq, &accepted.original_type)) {
+        return false;
+    }
+    if (!winder_link_payload_reader_done(reader)) {
+        return false;
+    }
+
+    out_decoded->type = HMI_CONTROLLER_LINK_DECODED_COMMAND_ACCEPTED;
+    out_decoded->data.command_accepted = accepted;
+    return true;
+}
+
+static bool decode_command_rejected(
+    winder_link_payload_reader_t *reader,
+    hmi_controller_link_decoded_t *out_decoded)
+{
+    hmi_controller_link_command_rejected_t rejected = {0};
+
+    if (!read_original_command(reader, &rejected.original_seq, &rejected.original_type)) {
+        return false;
+    }
+    if (!winder_link_payload_read_u16_le(reader, &rejected.reason_code)) {
+        return false;
+    }
+    if (!winder_link_payload_reader_done(reader)) {
+        return false;
+    }
+
+    out_decoded->type = HMI_CONTROLLER_LINK_DECODED_COMMAND_REJECTED;
+    out_decoded->data.command_rejected = rejected;
+    return true;
+}
+
+static bool decode_state_snapshot(
+    winder_link_payload_reader_t *reader,
+    hmi_controller_link_decoded_t *out_decoded)
+{
+    hmi_controller_link_state_snapshot_t state = {0};
+
+    if (!winder_link_payload_read_u8(reader, &state.machine_state)) {
+        return false;
+    }
+    if (!winder_link_payload_read_u8(reader, &state.homing_state)) {
+        return false;
+    }
+    if (!winder_link_payload_read_u8(reader, &state.job_state)) {
+        return false;
+    }
+    if (!winder_link_payload_read_u16_le(reader, &state.progress_permille)) {
+        return false;
+    }
+    if (!winder_link_payload_read_u32_le(reader, &state.wound_length_mm)) {
+        return false;
+    }
+    if (!winder_link_payload_read_u32_le(reader, &state.target_length_mm)) {
+        return false;
+    }
+    if (!winder_link_payload_read_u16_le(reader, &state.master_speed_centirps)) {
+        return false;
+    }
+    if (!winder_link_payload_read_u16_le(reader, &state.speed_override_permille)) {
+        return false;
+    }
+    if (!winder_link_payload_read_u16_le(reader, &state.error_code)) {
+        return false;
+    }
+    if (!winder_link_payload_read_u16_le(reader, &state.event_code)) {
+        return false;
+    }
+    if (!winder_link_payload_reader_done(reader)) {
+        return false;
+    }
+
+    out_decoded->type = HMI_CONTROLLER_LINK_DECODED_STATE_SNAPSHOT;
+    out_decoded->data.state_snapshot = state;
+    return true;
+}
+
 bool hmi_controller_link_encode_message(
     const hmi_controller_message_t *message,
     hmi_controller_link_encoded_t *out_encoded)
@@ -78,6 +180,35 @@ bool hmi_controller_link_encode_message(
     case HMI_CONTROLLER_MSG_START_JOB:
     default:
         /* Capability and job payload mappings are intentionally out of scope here. */
+        return false;
+    }
+}
+
+bool hmi_controller_link_decode_message(
+    winder_link_msg_type_t type,
+    const uint8_t *payload,
+    size_t payload_len,
+    hmi_controller_link_decoded_t *out_decoded)
+{
+    if (out_decoded == NULL) {
+        return false;
+    }
+
+    *out_decoded = (hmi_controller_link_decoded_t){0};
+
+    winder_link_payload_reader_t reader;
+    if (!winder_link_payload_reader_init(&reader, payload, payload_len)) {
+        return false;
+    }
+
+    switch (type) {
+    case WINDER_LINK_MSG_COMMAND_ACCEPTED:
+        return decode_command_accepted(&reader, out_decoded);
+    case WINDER_LINK_MSG_COMMAND_REJECTED:
+        return decode_command_rejected(&reader, out_decoded);
+    case WINDER_LINK_MSG_STATE_SNAPSHOT:
+        return decode_state_snapshot(&reader, out_decoded);
+    default:
         return false;
     }
 }
