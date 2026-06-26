@@ -7,6 +7,7 @@ idf_component_register(
         "src/hmi_pending_command.c"
         "src/hmi_event_queue.c"
         "src/controller/hmi_controller_messages.c"
+        "src/controller/hmi_controller_link_codec.c"
         "src/controller/hmi_controller_transport.c"
         "src/controller/hmi_controller_client.c"
         "src/controller/hmi_mock_controller.c"
@@ -45,4 +46,6 @@ idf_component_register(
         lvgl__lvgl
         freertos
         log
+    PRIV_REQUIRES
+        winder_link_protocol
 )
