@@ -1,0 +1,35 @@
+#include "hmi_demo_state.h"
+
+#include <stddef.h>
+
+static const hmi_state_t s_ready_state = {
+    .machine_state = HMI_MACHINE_HOMING_REQUIRED,
+    .homing_state = HMI_HOMING_REQUIRED,
+    .job_state = HMI_JOB_NOT_CONFIGURED,
+    .selected_mode = "Conical Winding",
+    .homing_step = "Ready to start",
+    .unwound_length_m = 0.0f,
+    .wound_length_m = 0.0f,
+    .target_length_m = 125.0f,
+    .progress_percent = 0.0f,
+    .carriage_position_mm = 0.0f,
+    .travel_range_mm = 250.0f,
+    .master_speed_rps = 0.0f,
+    .speed_override_percent = 100.0f,
+    .right_edge_offset_mm = 0.0f,
+    .eta_min = 0.0f,
+    .current_layer = 0,
+    .encoder_count = 0,
+    .carriage_direction = HMI_CARRIAGE_STOPPED,
+    .left_limit_active = false,
+    .right_limit_active = false,
+    .motor_state = "Idle",
+    .last_event = "Demo ready",
+    .last_error = NULL,
+    .safety_ok = true,
+};
+
+const hmi_state_t *hmi_demo_state_ready(void)
+{
+    return &s_ready_state;
+}
