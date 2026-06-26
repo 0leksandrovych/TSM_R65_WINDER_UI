@@ -68,7 +68,7 @@ static const hmi_state_t s_ready_state = {
     .safety_ok              = true,
 };
 
-static bool mock_send(const hmi_controller_message_t *message, void *user_ctx);
+static bool mock_send(const hmi_controller_message_t *message, uint16_t seq, void *user_ctx);
 
 static const hmi_controller_transport_t s_transport = {
     .send     = mock_send,
@@ -586,9 +586,10 @@ static void update_run(uint32_t elapsed_ms)
     publish_state();
 }
 
-static bool mock_send(const hmi_controller_message_t *message, void *user_ctx)
+static bool mock_send(const hmi_controller_message_t *message, uint16_t seq, void *user_ctx)
 {
     (void)user_ctx;
+    (void)seq;
 
     if (!s_enabled || message == NULL) {
         return false;

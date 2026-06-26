@@ -183,6 +183,7 @@ bool winder_hmi_post_command_rejected(hmi_command_t command, const char *reason)
 void winder_hmi_tick(void)
 {
     uint32_t now_ms = hmi_now_ms();
+    hmi_controller_client_process();
     process_internal_events();
     hmi_coordinator_on_tick(now_ms);
     if (s_demo_enabled) {
