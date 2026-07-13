@@ -117,7 +117,7 @@ static void create_topbar(lv_obj_t *root)
     widget_status_badge_create(topbar, &s_screen.badge);
 }
 
-static const char *homing_state_text(hmi_homing_state_t state)
+static const char *homing_state_to_text(hmi_homing_state_t state)
 {
     switch (state) {
     case HMI_HOMING_REQUIRED:
@@ -233,7 +233,7 @@ void screen_homing_update(const hmi_state_t *state)
         lv_label_set_text(s_screen.message_label, "Homing references the carriage against the limit sensors so positions are known.");
     }
 
-    widget_stat_row_set_value(&s_screen.state_row, homing_state_text(state->homing_state),
+    widget_stat_row_set_value(&s_screen.state_row, homing_state_to_text(state->homing_state),
                               complete ? HMI_COLOR_GREEN : (running ? HMI_COLOR_BLUE : HMI_COLOR_AMBER));
     widget_stat_row_set_value(&s_screen.step_row, state->homing_step != NULL ? state->homing_step : "--", HMI_COLOR_BLUE);
     widget_stat_row_set_value(&s_screen.left_limit_row, state->left_limit_active ? "ACTIVE" : "Open",

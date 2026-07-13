@@ -64,6 +64,7 @@ typedef enum {
     WINDER_LINK_MSG_RESET_UNWOUND_COUNTER = 0x0B,
     WINDER_LINK_MSG_SET_SPEED_OVERRIDE    = 0x0C,
     WINDER_LINK_MSG_APPLY_EDGE_TRIM       = 0x0D,
+    WINDER_LINK_MSG_GET_TELEMETRY         = 0x0E,
 
     /* Controller → HMI responses / unsolicited messages */
     WINDER_LINK_MSG_PONG                  = 0x80,

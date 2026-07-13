@@ -115,6 +115,29 @@ void winder_hmi_enable_demo_mode(bool enabled)
     }
 }
 
+bool winder_hmi_use_uart_controller(const winder_hmi_uart_controller_config_t *config)
+{
+    if (config == NULL) {
+        return false;
+    }
+
+    hmi_uart_transport_config_t uart_config = {
+        .uart_num = (uart_port_t)config->uart_num,
+        .tx_gpio = config->tx_gpio,
+        .rx_gpio = config->rx_gpio,
+        .baud_rate = config->baud_rate,
+        .rx_buffer_size = config->rx_buffer_size,
+        .tx_buffer_size = config->tx_buffer_size,
+        .rx_task_stack_size = config->rx_task_stack_size,
+        .rx_task_priority = config->rx_task_priority,
+        .rx_callback = NULL,
+        .error_callback = NULL,
+        .user_ctx = NULL,
+    };
+
+    return hmi_controller_client_use_uart_transport(&uart_config);
+}
+
 void winder_hmi_set_command_callback(winder_hmi_command_cb_t callback, void *user_ctx)
 {
     hmi_command_bus_set_callback(callback, user_ctx);

@@ -86,6 +86,7 @@ HMI -> main controller:
 0x0B  WINDER_LINK_MSG_RESET_UNWOUND_COUNTER
 0x0C  WINDER_LINK_MSG_SET_SPEED_OVERRIDE
 0x0D  WINDER_LINK_MSG_APPLY_EDGE_TRIM
+0x0E  WINDER_LINK_MSG_GET_TELEMETRY
 ```
 
 Main controller -> HMI:
@@ -151,24 +152,29 @@ repeated param_count times:
 
 This payload mapping is documented here as a contract target. It is not implemented by the frame codec or payload helpers yet.
 
-## 9. Planned State Snapshot Payload Contract
+## 9. State Snapshot Payload Contract
 
-Planned compact payload for `WINDER_LINK_MSG_STATE_SNAPSHOT`:
+Payload for `WINDER_LINK_MSG_GET_TELEMETRY`:  (empty)
+
+Payload for `WINDER_LINK_MSG_STATE_SNAPSHOT`:
 
 ```text
-machine_state              uint8
-homing_state               uint8
-job_state                  uint8
-progress_permille          uint16 little-endian
-wound_length_mm            uint32 little-endian
-target_length_mm           uint32 little-endian
-master_speed_centirps      uint16 little-endian
-speed_override_permille    uint16 little-endian
-error_code                 uint16 little-endian
-event_code                 uint16 little-endian
+field_count    uint8
+repeated field_count times:
+  field_id     uint16 little-endian
+  scaled_value int32 little-endian
 ```
 
-This payload is not implemented by the protocol component yet.
+Implemented field IDs:
+
+```text
+1  LINK_FIELD_MACHINE_STATE         enum/code, scale x1
+2  LINK_FIELD_JOB_MASTER_SPEED      float,     scale x100  -> centi-rps
+3  LINK_FIELD_JOB_WINDING_PITCH     float,     scale x100  -> centi-mm
+4  LINK_FIELD_JOB_TARGET_LENGTH     float,     scale x1000 -> mm
+5  LINK_FIELD_JOB_SHIFT_EVERY       uint,      scale x1    -> layers
+6  LINK_FIELD_JOB_RIGHT_EDGE_SHIFT  float,     scale x100  -> centi-mm
+```
 
 ## 10. Numeric Encoding Rules
 
