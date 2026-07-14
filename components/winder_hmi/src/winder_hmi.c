@@ -149,7 +149,12 @@ bool winder_hmi_use_uart_controller(const winder_hmi_uart_controller_config_t *c
         .user_ctx = NULL,
     };
 
-    return hmi_controller_client_use_uart_transport(&uart_config);
+    if (!hmi_controller_client_use_uart_transport(&uart_config)) {
+        return false;
+    }
+
+    hmi_model_set_connection_state(HMI_CONNECTION_CONNECTED);
+    return true;
 }
 
 void winder_hmi_set_command_callback(winder_hmi_command_cb_t callback, void *user_ctx)
