@@ -30,7 +30,9 @@ static inline uint32_t hmi_now_ms(void)
 
 static void poll_controller_telemetry(uint32_t now_ms)
 {
-    if (hmi_model_get_connection_state() != HMI_CONNECTION_CONNECTED ||
+    const hmi_connection_state_t connection = hmi_model_get_connection_state();
+    if ((connection != HMI_CONNECTION_CONNECTING &&
+         connection != HMI_CONNECTION_CONNECTED) ||
         (now_ms - s_last_telemetry_request_ms) < HMI_TELEMETRY_POLL_INTERVAL_MS) {
         return;
     }
@@ -153,7 +155,7 @@ bool winder_hmi_use_uart_controller(const winder_hmi_uart_controller_config_t *c
         return false;
     }
 
-    hmi_model_set_connection_state(HMI_CONNECTION_CONNECTED);
+    hmi_model_set_connection_state(HMI_CONNECTION_CONNECTING);
     return true;
 }
 

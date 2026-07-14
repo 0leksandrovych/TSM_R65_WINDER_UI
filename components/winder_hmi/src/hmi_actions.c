@@ -37,7 +37,9 @@ void hmi_actions_home_primary(void)
         return;
     }
 
-    if (state->machine_state == HMI_MACHINE_RUNNING || state->machine_state == HMI_MACHINE_PAUSED) {
+    if (state->machine_state == HMI_MACHINE_RUNNING ||
+        state->machine_state == HMI_MACHINE_PAUSED ||
+        state->machine_state == HMI_MACHINE_STOPPING) {
         hmi_actions_open_run();
         return;
     }

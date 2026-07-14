@@ -169,13 +169,41 @@ repeated field_count times:
 Implemented field IDs:
 
 ```text
-1  LINK_FIELD_MACHINE_STATE         enum/code, scale x1
+1  LINK_FIELD_MACHINE_STATE         link_machine_state_t, scale x1
 2  LINK_FIELD_JOB_MASTER_SPEED      float,     scale x100  -> centi-rps
 3  LINK_FIELD_JOB_WINDING_PITCH     float,     scale x100  -> centi-mm
 4  LINK_FIELD_JOB_TARGET_LENGTH     float,     scale x1000 -> mm
 5  LINK_FIELD_JOB_SHIFT_EVERY       uint,      scale x1    -> layers
 6  LINK_FIELD_JOB_RIGHT_EDGE_SHIFT  float,     scale x100  -> centi-mm
+7  LINK_FIELD_HOMING_STATE          link_homing_state_t, scale x1
 ```
+
+`LINK_FIELD_MACHINE_STATE` carries a `link_machine_state_t` value. It must
+not carry a generated controller runtime state ID. `LINK_FIELD_HOMING_STATE`
+carries a `link_homing_state_t` value.
+
+The numeric values of both enums are a stable part of the wire contract:
+
+```text
+link_machine_state_t
+0  LINK_MACHINE_STATE_BOOTING
+1  LINK_MACHINE_STATE_HOMING_REQUIRED
+2  LINK_MACHINE_STATE_HOMING
+3  LINK_MACHINE_STATE_READY
+4  LINK_MACHINE_STATE_RUNNING
+5  LINK_MACHINE_STATE_STOPPING
+6  LINK_MACHINE_STATE_FINISHED
+7  LINK_MACHINE_STATE_ALARM
+
+link_homing_state_t
+0  LINK_HOMING_STATE_REQUIRED
+1  LINK_HOMING_STATE_IN_PROGRESS
+2  LINK_HOMING_STATE_COMPLETE
+3  LINK_HOMING_STATE_FAILED
+```
+
+These values must not be renumbered or coupled to generated state-machine IDs.
+New values require an explicit backward-compatible contract extension.
 
 ## 10. Numeric Encoding Rules
 

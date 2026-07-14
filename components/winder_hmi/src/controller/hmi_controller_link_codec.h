@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "hmi_controller_messages.h"
+#include "winder_link_contract.h"
 #include "winder_link_protocol.h"
 
 typedef struct {
@@ -33,7 +34,10 @@ typedef struct {
 
 typedef struct {
     bool machine_state_present;
-    uint8_t machine_state;
+    link_machine_state_t machine_state;
+
+    bool homing_state_present;
+    link_homing_state_t homing_state;
 
     bool job_master_speed_present;
     double job_master_speed;

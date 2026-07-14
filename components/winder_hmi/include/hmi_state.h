@@ -9,6 +9,7 @@ typedef enum {
     HMI_MACHINE_READY,
     HMI_MACHINE_RUNNING,
     HMI_MACHINE_PAUSED,
+    HMI_MACHINE_STOPPING,
     HMI_MACHINE_FINISHED,
     HMI_MACHINE_ALARM,
 } hmi_machine_state_t;

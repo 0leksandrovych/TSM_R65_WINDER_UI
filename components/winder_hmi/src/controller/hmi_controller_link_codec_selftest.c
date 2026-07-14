@@ -5,6 +5,8 @@
 
 #include "hmi_controller_link_codec.h"
 #include "hmi_controller_messages.h"
+#include "hmi_link_state_mapper.h"
+#include "winder_link_contract.h"
 #include "winder_link_payload.h"
 #include "winder_link_protocol.h"
 
@@ -324,32 +326,30 @@ static bool test_decode_command_rejected_frame_loopback(void)
            decoded.data.command_rejected.reason_code == 2U;
 }
 
-static bool test_decode_state_snapshot_frame_loopback(void)
+typedef struct {
+    uint16_t field_id;
+    int32_t scaled_value;
+} snapshot_test_field_t;
+
+static bool decode_snapshot_fields(
+    const snapshot_test_field_t *fields,
+    size_t field_count,
+    hmi_controller_link_decoded_t *out_decoded)
 {
+    if ((fields == NULL && field_count > 0U) ||
+        field_count > UINT8_MAX ||
+        out_decoded == NULL) {
+        return false;
+    }
+
     uint8_t payload[WINDER_LINK_MAX_PAYLOAD_SIZE] = {0};
     winder_link_payload_writer_t writer;
-    if (!winder_link_payload_writer_init(&writer, payload, sizeof(payload))) {
+    if (!winder_link_payload_writer_init(&writer, payload, sizeof(payload)) ||
+        !winder_link_payload_write_u8(&writer, (uint8_t)field_count)) {
         return false;
     }
 
-    if (!winder_link_payload_write_u8(&writer, 7U)) {
-        return false;
-    }
-
-    const struct {
-        uint16_t field_id;
-        int32_t scaled_value;
-    } fields[] = {
-        { 1U, 3 },
-        { 0x9999U, 123 },
-        { 2U, 250 },
-        { 3U, 80 },
-        { 4U, 120000 },
-        { 5U, 3 },
-        { 6U, 100 },
-    };
-
-    for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++) {
+    for (size_t i = 0; i < field_count; i++) {
         if (!winder_link_payload_write_u16_le(&writer, fields[i].field_id) ||
             !winder_link_payload_write_i32_le(&writer, fields[i].scaled_value)) {
             return false;
@@ -366,11 +366,124 @@ static bool test_decode_state_snapshot_frame_loopback(void)
         return false;
     }
 
+    return hmi_controller_link_decode_message(
+        (winder_link_msg_type_t)frame.type,
+        frame.payload,
+        frame.payload_len,
+        out_decoded);
+}
+
+static bool test_decode_valid_machine_state(void)
+{
+    const snapshot_test_field_t fields[] = {
+        { LINK_FIELD_MACHINE_STATE, LINK_MACHINE_STATE_READY },
+    };
     hmi_controller_link_decoded_t decoded = {0};
-    if (!hmi_controller_link_decode_message(
-            (winder_link_msg_type_t)frame.type,
-            frame.payload,
-            frame.payload_len,
+
+    if (!decode_snapshot_fields(fields, 1U, &decoded)) {
+        return false;
+    }
+
+    const hmi_controller_link_state_snapshot_t *state = &decoded.data.state_snapshot;
+    return decoded.type == HMI_CONTROLLER_LINK_DECODED_STATE_SNAPSHOT &&
+           state->machine_state_present &&
+           state->machine_state == LINK_MACHINE_STATE_READY;
+}
+
+static bool test_decode_valid_homing_state(void)
+{
+    const snapshot_test_field_t fields[] = {
+        { LINK_FIELD_HOMING_STATE, LINK_HOMING_STATE_COMPLETE },
+    };
+    hmi_controller_link_decoded_t decoded = {0};
+
+    if (!decode_snapshot_fields(fields, 1U, &decoded)) {
+        return false;
+    }
+
+    const hmi_controller_link_state_snapshot_t *state = &decoded.data.state_snapshot;
+    return decoded.type == HMI_CONTROLLER_LINK_DECODED_STATE_SNAPSHOT &&
+           state->homing_state_present &&
+           state->homing_state == LINK_HOMING_STATE_COMPLETE;
+}
+
+static bool test_decode_snapshot_with_machine_and_homing_states(void)
+{
+    const snapshot_test_field_t fields[] = {
+        { LINK_FIELD_MACHINE_STATE, LINK_MACHINE_STATE_HOMING },
+        { LINK_FIELD_HOMING_STATE, LINK_HOMING_STATE_IN_PROGRESS },
+    };
+    hmi_controller_link_decoded_t decoded = {0};
+
+    if (!decode_snapshot_fields(fields, 2U, &decoded)) {
+        return false;
+    }
+
+    const hmi_controller_link_state_snapshot_t *state = &decoded.data.state_snapshot;
+    return state->machine_state_present &&
+           state->machine_state == LINK_MACHINE_STATE_HOMING &&
+           state->homing_state_present &&
+           state->homing_state == LINK_HOMING_STATE_IN_PROGRESS;
+}
+
+static bool test_decode_unknown_snapshot_field_is_ignored(void)
+{
+    const snapshot_test_field_t fields[] = {
+        { 0x9999U, 123 },
+        { LINK_FIELD_MACHINE_STATE, LINK_MACHINE_STATE_RUNNING },
+    };
+    hmi_controller_link_decoded_t decoded = {0};
+
+    if (!decode_snapshot_fields(fields, 2U, &decoded)) {
+        return false;
+    }
+
+    const hmi_controller_link_state_snapshot_t *state = &decoded.data.state_snapshot;
+    return state->machine_state_present &&
+           state->machine_state == LINK_MACHINE_STATE_RUNNING &&
+           !state->homing_state_present;
+}
+
+static bool test_unsupported_enum_values_do_not_map(void)
+{
+    const snapshot_test_field_t fields[] = {
+        { LINK_FIELD_MACHINE_STATE, 99 },
+        { LINK_FIELD_HOMING_STATE, 99 },
+    };
+    hmi_controller_link_decoded_t decoded = {0};
+
+    if (!decode_snapshot_fields(fields, 2U, &decoded)) {
+        return false;
+    }
+
+    const hmi_controller_link_state_snapshot_t *snapshot = &decoded.data.state_snapshot;
+    hmi_machine_state_t machine_state = HMI_MACHINE_READY;
+    hmi_homing_state_t homing_state = HMI_HOMING_OK;
+
+    return snapshot->machine_state_present &&
+           snapshot->homing_state_present &&
+           !hmi_link_state_mapper_machine_state(snapshot->machine_state, &machine_state) &&
+           machine_state == HMI_MACHINE_READY &&
+           !hmi_link_state_mapper_homing_state(snapshot->homing_state, &homing_state) &&
+           homing_state == HMI_HOMING_OK;
+}
+
+static bool test_decode_state_snapshot_frame_loopback(void)
+{
+    const snapshot_test_field_t fields[] = {
+        { LINK_FIELD_MACHINE_STATE, LINK_MACHINE_STATE_READY },
+        { LINK_FIELD_HOMING_STATE, LINK_HOMING_STATE_COMPLETE },
+        { LINK_FIELD_JOB_MASTER_SPEED, 250 },
+        { LINK_FIELD_JOB_WINDING_PITCH, 80 },
+        { LINK_FIELD_JOB_TARGET_LENGTH, 120000 },
+        { LINK_FIELD_JOB_SHIFT_EVERY, 3 },
+        { LINK_FIELD_JOB_RIGHT_EDGE_SHIFT, 100 },
+    };
+    hmi_controller_link_decoded_t decoded = {0};
+
+    if (!decode_snapshot_fields(
+            fields,
+            sizeof(fields) / sizeof(fields[0]),
             &decoded)) {
         return false;
     }
@@ -378,7 +491,9 @@ static bool test_decode_state_snapshot_frame_loopback(void)
     const hmi_controller_link_state_snapshot_t *state = &decoded.data.state_snapshot;
     return decoded.type == HMI_CONTROLLER_LINK_DECODED_STATE_SNAPSHOT &&
            state->machine_state_present &&
-           state->machine_state == 3U &&
+           state->machine_state == LINK_MACHINE_STATE_READY &&
+           state->homing_state_present &&
+           state->homing_state == LINK_HOMING_STATE_COMPLETE &&
            state->job_master_speed_present &&
            state->job_master_speed == 2.5 &&
            state->job_winding_pitch_present &&
@@ -437,6 +552,11 @@ bool hmi_controller_link_codec_selftest(void)
            test_encode_start_job_unknown_param_rejected() &&
            test_decode_command_accepted_frame_loopback() &&
            test_decode_command_rejected_frame_loopback() &&
+           test_decode_valid_machine_state() &&
+           test_decode_valid_homing_state() &&
+           test_decode_snapshot_with_machine_and_homing_states() &&
+           test_decode_unknown_snapshot_field_is_ignored() &&
+           test_unsupported_enum_values_do_not_map() &&
            test_decode_state_snapshot_frame_loopback() &&
            test_decode_command_accepted_truncated_payload_rejected() &&
            test_decode_command_accepted_extra_payload_rejected();

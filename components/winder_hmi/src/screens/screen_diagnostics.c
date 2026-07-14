@@ -169,7 +169,9 @@ void screen_diagnostics_update(const hmi_state_t *state)
     }
 
     char value[40];
-    bool locked = state->machine_state == HMI_MACHINE_RUNNING || state->machine_state == HMI_MACHINE_PAUSED;
+    bool locked = state->machine_state == HMI_MACHINE_RUNNING ||
+                  state->machine_state == HMI_MACHINE_PAUSED ||
+                  state->machine_state == HMI_MACHINE_STOPPING;
 
     widget_status_badge_update(&s_screen.badge, state->machine_state);
     lv_label_set_text(s_screen.banner, locked ? "READ ONLY - machine is running" : "Diagnostic values are read-only mock/state data.");

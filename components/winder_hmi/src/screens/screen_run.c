@@ -354,6 +354,7 @@ void screen_run_update(const hmi_state_t *state)
     bool pause_pending = pending == HMI_PENDING_PAUSE_JOB;
     bool resume_pending = pending == HMI_PENDING_RESUME_JOB;
     bool stop_pending = pending == HMI_PENDING_STOP_JOB;
+    bool machine_stopping = state->machine_state == HMI_MACHINE_STOPPING;
 
     snprintf(value, sizeof(value), "%.1f / %.1f m", (double)state->wound_length_m, (double)state->target_length_m);
     lv_label_set_text(s_screen.length_label, value);
@@ -410,12 +411,18 @@ void screen_run_update(const hmi_state_t *state)
         }
         lv_obj_center(s_screen.pause_label);
         set_button_enabled_color(s_screen.pause_button, paused ? HMI_COLOR_GREEN : HMI_COLOR_AMBER);
-        set_button_dimmed(s_screen.pause_button, pause_pending || resume_pending || stop_pending);
+        set_button_dimmed(
+            s_screen.pause_button,
+            pause_pending || resume_pending || stop_pending || machine_stopping);
     }
 
     if (s_screen.stop_label != NULL) {
-        lv_label_set_text(s_screen.stop_label, stop_pending ? "STOPPING..." : "STOP");
+        lv_label_set_text(
+            s_screen.stop_label,
+            (stop_pending || machine_stopping) ? "STOPPING..." : "STOP");
         lv_obj_center(s_screen.stop_label);
-        set_button_dimmed(s_screen.stop_button, stop_pending || pause_pending || resume_pending);
+        set_button_dimmed(
+            s_screen.stop_button,
+            stop_pending || pause_pending || resume_pending || machine_stopping);
     }
 }

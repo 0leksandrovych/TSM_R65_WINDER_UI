@@ -3,13 +3,17 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include "esp_log.h"
 #include "hmi_controller_client.h"
 #include "hmi_controller_rx_queue.h"
 #include "hmi_event_queue.h"
+#include "hmi_link_state_mapper.h"
 #include "hmi_model.h"
 
 #define HMI_CONTROLLER_RX_DRAIN_LIMIT 8U
 #define HMI_CONTROLLER_RX_QUEUE_FULL  1001
+
+static const char *TAG = "hmi_controller_rx";
 
 static hmi_uart_transport_error_callback_t s_uart_error_callback;
 static void *s_uart_user_ctx;
@@ -125,8 +129,23 @@ static void handle_state_snapshot(
         state = *current;
     }
 
-    if (snapshot->machine_state_present) {
-        state.machine_state = (hmi_machine_state_t)snapshot->machine_state;
+    if (snapshot->machine_state_present &&
+        !hmi_link_state_mapper_machine_state(
+            snapshot->machine_state,
+            &state.machine_state)) {
+        ESP_LOGW(
+            TAG,
+            "Ignoring unsupported link machine state: %d",
+            (int)snapshot->machine_state);
+    }
+    if (snapshot->homing_state_present &&
+        !hmi_link_state_mapper_homing_state(
+            snapshot->homing_state,
+            &state.homing_state)) {
+        ESP_LOGW(
+            TAG,
+            "Ignoring unsupported link homing state: %d",
+            (int)snapshot->homing_state);
     }
     if (snapshot->job_master_speed_present) {
         state.master_speed_rps = (float)snapshot->job_master_speed;
@@ -144,10 +163,11 @@ static void handle_state_snapshot(
         state.right_edge_offset_mm = (float)snapshot->job_right_edge_shift;
     }
 
-    /* homing_state, job_state, progress, wound length, override, error, and
-     * event are not available from the current controller telemetry contract. */
+    /* job_state, progress, wound length, override, error, and event are not
+     * available from the current controller telemetry contract. */
 
     (void)post_state_update(&state);
+    hmi_model_set_connection_state(HMI_CONNECTION_CONNECTED);
 }
 
 bool hmi_controller_rx_handler_prepare_uart_config(

@@ -45,6 +45,8 @@ static const char *machine_big_text(hmi_machine_state_t state)
         return "RUNNING";
     case HMI_MACHINE_PAUSED:
         return "PAUSED";
+    case HMI_MACHINE_STOPPING:
+        return "STOPPING";
     case HMI_MACHINE_FINISHED:
         return "FINISHED";
     case HMI_MACHINE_ALARM:
@@ -69,6 +71,8 @@ static const char *machine_explanation_text(const hmi_state_t *state)
     case HMI_MACHINE_RUNNING:
     case HMI_MACHINE_PAUSED:
         return "A winding job is in progress.";
+    case HMI_MACHINE_STOPPING:
+        return "The machine is stopping the active winding job.";
     case HMI_MACHINE_FINISHED:
         return "The winding job has finished. Review results before starting a new job.";
     case HMI_MACHINE_ALARM:
@@ -145,7 +149,9 @@ static const char *primary_text_for_state(const hmi_state_t *state)
     if (state->machine_state == HMI_MACHINE_READY && state->job_state == HMI_JOB_VALID) {
         return "CONFIRM START";
     }
-    if (state->machine_state == HMI_MACHINE_RUNNING || state->machine_state == HMI_MACHINE_PAUSED) {
+    if (state->machine_state == HMI_MACHINE_RUNNING ||
+        state->machine_state == HMI_MACHINE_PAUSED ||
+        state->machine_state == HMI_MACHINE_STOPPING) {
         return "OPEN RUN SCREEN";
     }
     if (state->machine_state == HMI_MACHINE_ALARM) {
@@ -163,6 +169,7 @@ static hmi_color_role_t machine_color_for_state(hmi_machine_state_t state)
         return HMI_COLOR_GREEN;
     case HMI_MACHINE_HOMING_REQUIRED:
     case HMI_MACHINE_PAUSED:
+    case HMI_MACHINE_STOPPING:
     case HMI_MACHINE_BOOTING:
         return HMI_COLOR_AMBER;
     case HMI_MACHINE_ALARM:

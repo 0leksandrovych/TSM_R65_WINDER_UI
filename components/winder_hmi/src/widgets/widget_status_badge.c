@@ -15,6 +15,8 @@ static const char *machine_state_text(hmi_machine_state_t state)
         return "RUNNING";
     case HMI_MACHINE_PAUSED:
         return "PAUSED";
+    case HMI_MACHINE_STOPPING:
+        return "STOPPING";
     case HMI_MACHINE_FINISHED:
         return "FINISHED";
     case HMI_MACHINE_ALARM:
@@ -35,6 +37,7 @@ static lv_style_t *badge_style_for_state(hmi_machine_state_t state)
         return &styles->badge_green;
     case HMI_MACHINE_HOMING_REQUIRED:
     case HMI_MACHINE_PAUSED:
+    case HMI_MACHINE_STOPPING:
     case HMI_MACHINE_BOOTING:
         return &styles->badge_amber;
     case HMI_MACHINE_ALARM:
