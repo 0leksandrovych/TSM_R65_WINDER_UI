@@ -8,6 +8,7 @@ idf_component_register(
         "src/hmi_event_queue.c"
         "src/controller/hmi_controller_messages.c"
         "src/controller/hmi_controller_rx_queue.c"
+        "src/controller/hmi_controller_rx_handler.c"
         "src/controller/hmi_controller_link_codec.c"
         "src/controller/hmi_controller_link_codec_selftest.c"
         "src/controller/hmi_uart_transport.c"

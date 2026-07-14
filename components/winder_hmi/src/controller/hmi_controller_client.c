@@ -7,16 +7,13 @@
 #include "hmi_capability_model.h"
 #include "hmi_command_bus.h"
 #include "hmi_controller_messages.h"
-#include "hmi_controller_rx_queue.h"
+#include "hmi_controller_rx_handler.h"
 #include "hmi_controller_transport.h"
 #include "hmi_event_queue.h"
 #include "hmi_job_draft_model.h"
-#include "hmi_model.h"
 #include "winder_link_protocol.h"
 
 #define HMI_CONTROLLER_SEQ_TRACK_CAPACITY 8U
-#define HMI_CONTROLLER_RX_DRAIN_LIMIT     8U
-#define HMI_CONTROLLER_RX_QUEUE_FULL      1001
 
 typedef struct {
     bool active;
@@ -25,11 +22,53 @@ typedef struct {
     hmi_controller_msg_type_t message_type;
 } hmi_controller_seq_entry_t;
 
+typedef enum {
+    CMD_PAYLOAD_NONE,
+    CMD_PAYLOAD_JOB,
+    CMD_PAYLOAD_SINGLE_FLOAT,
+} command_payload_kind_t;
+
+typedef enum {
+    CMD_FLOAT_FIELD_NONE,
+    CMD_FLOAT_FIELD_SPEED_OVERRIDE_PERCENT,
+    CMD_FLOAT_FIELD_EDGE_TRIM_MM,
+} command_float_field_t;
+
+typedef struct {
+    hmi_command_t command;
+    hmi_controller_msg_type_t message_type;
+    command_payload_kind_t payload_kind;
+    command_float_field_t float_field;
+} command_binding_t;
+
+static const command_binding_t s_command_bindings[] = {
+    { HMI_CMD_START_HOMING,          HMI_CONTROLLER_MSG_START_HOMING,
+      CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_ABORT_HOMING,          HMI_CONTROLLER_MSG_ABORT_HOMING,
+      CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_VALIDATE_JOB,          HMI_CONTROLLER_MSG_VALIDATE_JOB,
+      CMD_PAYLOAD_JOB, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_START_JOB,             HMI_CONTROLLER_MSG_START_JOB,
+      CMD_PAYLOAD_JOB, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_PAUSE_JOB,             HMI_CONTROLLER_MSG_PAUSE_JOB,
+      CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_RESUME_JOB,            HMI_CONTROLLER_MSG_RESUME_JOB,
+      CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_STOP_JOB,              HMI_CONTROLLER_MSG_STOP_JOB,
+      CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_RESET_ALARM,           HMI_CONTROLLER_MSG_RESET_ALARM,
+      CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_RESET_UNWOUND_COUNTER, HMI_CONTROLLER_MSG_RESET_UNWOUND_COUNTER,
+      CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_SET_SPEED_OVERRIDE,    HMI_CONTROLLER_MSG_SET_SPEED_OVERRIDE,
+      CMD_PAYLOAD_SINGLE_FLOAT, CMD_FLOAT_FIELD_SPEED_OVERRIDE_PERCENT },
+    { HMI_CMD_APPLY_EDGE_TRIM,       HMI_CONTROLLER_MSG_APPLY_EDGE_TRIM,
+      CMD_PAYLOAD_SINGLE_FLOAT, CMD_FLOAT_FIELD_EDGE_TRIM_MM },
+};
+
 static bool s_initialized;
 static uint16_t s_next_seq = 1U;
 static hmi_controller_seq_entry_t s_seq_entries[HMI_CONTROLLER_SEQ_TRACK_CAPACITY];
-static hmi_uart_transport_error_callback_t s_uart_error_callback;
-static void *s_uart_user_ctx;
 
 static bool uart_transport_send_adapter(
     const hmi_controller_message_t *message,
@@ -40,16 +79,6 @@ static const hmi_controller_transport_t s_uart_controller_transport = {
     .send = uart_transport_send_adapter,
     .user_ctx = NULL,
 };
-
-static bool post_command_accepted(hmi_command_t command)
-{
-    hmi_internal_event_t event = {
-        .type = HMI_INTERNAL_EVENT_COMMAND_ACCEPTED,
-        .data.command_accepted = command,
-    };
-
-    return hmi_event_queue_post(&event);
-}
 
 static bool post_command_rejected(hmi_command_t command, const char *reason)
 {
@@ -63,20 +92,6 @@ static bool post_command_rejected(hmi_command_t command, const char *reason)
         sizeof(event.data.command_rejected.reason),
         "%s",
         reason != NULL ? reason : "Command rejected");
-
-    return hmi_event_queue_post(&event);
-}
-
-static bool post_state_update(const hmi_state_t *state)
-{
-    if (state == NULL) {
-        return false;
-    }
-
-    hmi_internal_event_t event = {
-        .type = HMI_INTERNAL_EVENT_STATE_UPDATE,
-        .data.state = *state,
-    };
 
     return hmi_event_queue_post(&event);
 }
@@ -174,9 +189,10 @@ static bool command_for_wire_type(winder_link_msg_type_t type, hmi_command_t *ou
     }
 }
 
-static bool command_from_response(uint16_t original_seq,
-                                  winder_link_msg_type_t original_type,
-                                  hmi_command_t *out_command)
+bool hmi_controller_client_resolve_response(
+    uint16_t original_seq,
+    winder_link_msg_type_t original_type,
+    hmi_command_t *out_command)
 {
     if (command_for_seq(original_seq, out_command)) {
         forget_seq(original_seq);
@@ -228,6 +244,19 @@ static bool build_current_job_payload(hmi_controller_job_payload_t *out)
     return true;
 }
 
+static const command_binding_t *find_command_binding(hmi_command_t command)
+{
+    for (size_t i = 0;
+         i < sizeof(s_command_bindings) / sizeof(s_command_bindings[0]);
+         i++) {
+        if (s_command_bindings[i].command == command) {
+            return &s_command_bindings[i];
+        }
+    }
+
+    return NULL;
+}
+
 static void on_command(hmi_command_t command,
                        const hmi_command_payload_t *payload,
                        void *user_ctx)
@@ -239,56 +268,51 @@ static void on_command(hmi_command_t command,
         return;
     }
 
+    const command_binding_t *binding = find_command_binding(command);
+    if (binding == NULL) {
+        (void)post_command_rejected(command, "Command not supported");
+        return;
+    }
+
     hmi_controller_message_t message = {0};
     bool ok = false;
 
-    switch (command) {
-    case HMI_CMD_VALIDATE_JOB:
-    case HMI_CMD_START_JOB: {
+    switch (binding->payload_kind) {
+    case CMD_PAYLOAD_NONE:
+        ok = hmi_controller_message_init(&message, binding->message_type);
+        break;
+    case CMD_PAYLOAD_JOB: {
         hmi_controller_job_payload_t job = {0};
         if (!build_current_job_payload(&job)) {
             (void)post_command_rejected(command, "Failed to build job payload");
             return;
         }
-        hmi_controller_msg_type_t type = (command == HMI_CMD_VALIDATE_JOB)
-            ? HMI_CONTROLLER_MSG_VALIDATE_JOB
-            : HMI_CONTROLLER_MSG_START_JOB;
-        ok = hmi_controller_message_init_job(&message, type, &job);
+        ok = hmi_controller_message_init_job(
+            &message,
+            binding->message_type,
+            &job);
         break;
     }
-    case HMI_CMD_START_HOMING:
-        ok = hmi_controller_message_init(&message, HMI_CONTROLLER_MSG_START_HOMING);
+    case CMD_PAYLOAD_SINGLE_FLOAT: {
+        const float value = payload != NULL ? payload->value.f32 : 0.0f;
+        message.type = binding->message_type;
+
+        switch (binding->float_field) {
+        case CMD_FLOAT_FIELD_SPEED_OVERRIDE_PERCENT:
+            message.data.speed_override_percent = value;
+            ok = true;
+            break;
+        case CMD_FLOAT_FIELD_EDGE_TRIM_MM:
+            message.data.edge_trim_mm = value;
+            ok = true;
+            break;
+        case CMD_FLOAT_FIELD_NONE:
+        default:
+            break;
+        }
         break;
-    case HMI_CMD_ABORT_HOMING:
-        ok = hmi_controller_message_init(&message, HMI_CONTROLLER_MSG_ABORT_HOMING);
-        break;
-    case HMI_CMD_PAUSE_JOB:
-        ok = hmi_controller_message_init(&message, HMI_CONTROLLER_MSG_PAUSE_JOB);
-        break;
-    case HMI_CMD_RESUME_JOB:
-        ok = hmi_controller_message_init(&message, HMI_CONTROLLER_MSG_RESUME_JOB);
-        break;
-    case HMI_CMD_STOP_JOB:
-        ok = hmi_controller_message_init(&message, HMI_CONTROLLER_MSG_STOP_JOB);
-        break;
-    case HMI_CMD_RESET_ALARM:
-        ok = hmi_controller_message_init(&message, HMI_CONTROLLER_MSG_RESET_ALARM);
-        break;
-    case HMI_CMD_RESET_UNWOUND_COUNTER:
-        ok = hmi_controller_message_init(&message, HMI_CONTROLLER_MSG_RESET_UNWOUND_COUNTER);
-        break;
-    case HMI_CMD_SET_SPEED_OVERRIDE:
-        message.type = HMI_CONTROLLER_MSG_SET_SPEED_OVERRIDE;
-        message.data.speed_override_percent = payload != NULL ? payload->value.f32 : 0.0f;
-        ok = true;
-        break;
-    case HMI_CMD_APPLY_EDGE_TRIM:
-        message.type = HMI_CONTROLLER_MSG_APPLY_EDGE_TRIM;
-        message.data.edge_trim_mm = payload != NULL ? payload->value.f32 : 0.0f;
-        ok = true;
-        break;
+    }
     default:
-        ok = false;
         break;
     }
 
@@ -318,97 +342,11 @@ static bool uart_transport_send_adapter(
     return hmi_uart_transport_send_message(message, seq);
 }
 
-static void on_uart_decoded_response(
-    const hmi_controller_link_decoded_t *decoded,
-    void *user_ctx)
-{
-    (void)user_ctx;
-
-    if (!hmi_controller_rx_queue_push(decoded) && s_uart_error_callback != NULL) {
-        s_uart_error_callback(HMI_CONTROLLER_RX_QUEUE_FULL, s_uart_user_ctx);
-    }
-}
-
-static void on_uart_error(int error_code, void *user_ctx)
-{
-    (void)user_ctx;
-
-    if (s_uart_error_callback != NULL) {
-        s_uart_error_callback(error_code, s_uart_user_ctx);
-    }
-}
-
-static void handle_command_accepted(
-    const hmi_controller_link_command_accepted_t *accepted)
-{
-    hmi_command_t command;
-    if (accepted == NULL ||
-        !command_from_response(accepted->original_seq, accepted->original_type, &command)) {
-        return;
-    }
-
-    (void)post_command_accepted(command);
-}
-
-static void handle_command_rejected(
-    const hmi_controller_link_command_rejected_t *rejected)
-{
-    hmi_command_t command;
-    char reason[HMI_TEXT_MESSAGE_MAX];
-
-    if (rejected == NULL ||
-        !command_from_response(rejected->original_seq, rejected->original_type, &command)) {
-        return;
-    }
-
-    snprintf(
-        reason,
-        sizeof(reason),
-        "Controller rejected command, code %u",
-        (unsigned)rejected->reason_code);
-
-    (void)post_command_rejected(command, reason);
-}
-
-static void handle_state_snapshot(
-    const hmi_controller_link_state_snapshot_t *snapshot)
-{
-    if (snapshot == NULL) {
-        return;
-    }
-
-    hmi_state_t state = {0};
-    const hmi_state_t *current = hmi_model_get_state();
-    if (current != NULL) {
-        state = *current;
-    }
-
-    state.machine_state = (hmi_machine_state_t)snapshot->machine_state;
-    state.homing_state = (hmi_homing_state_t)snapshot->homing_state;
-    state.job_state = (hmi_job_state_t)snapshot->job_state;
-    state.progress_percent = (float)snapshot->progress_permille / 10.0f;
-    state.wound_length_m = (float)snapshot->wound_length_mm / 1000.0f;
-    state.target_length_m = (float)snapshot->target_length_mm / 1000.0f;
-    state.master_speed_rps = (float)snapshot->master_speed_centirps / 100.0f;
-    state.speed_override_percent = (float)snapshot->speed_override_permille / 10.0f;
-
-    if (snapshot->error_code != 0U) {
-        state.last_error = "Controller error";
-    }
-    if (snapshot->event_code != 0U) {
-        state.last_event = "Controller state update";
-    }
-
-    (void)post_state_update(&state);
-}
-
 void hmi_controller_client_init(void)
 {
     if (s_initialized) {
         return;
     }
-
-    (void)hmi_controller_rx_queue_init();
 
     if (hmi_command_bus_add_listener(on_command, NULL)) {
         s_initialized = true;
@@ -431,17 +369,10 @@ bool hmi_controller_client_use_uart_transport(
     if (config == NULL) {
         return false;
     }
-    if (!hmi_controller_rx_queue_init()) {
+    hmi_uart_transport_config_t transport_config = *config;
+    if (!hmi_controller_rx_handler_prepare_uart_config(&transport_config)) {
         return false;
     }
-
-    s_uart_error_callback = config->error_callback;
-    s_uart_user_ctx = config->user_ctx;
-
-    hmi_uart_transport_config_t transport_config = *config;
-    transport_config.rx_callback = on_uart_decoded_response;
-    transport_config.error_callback = on_uart_error;
-    transport_config.user_ctx = NULL;
 
     if (!hmi_uart_transport_init(&transport_config)) {
         return false;
@@ -452,29 +383,4 @@ bool hmi_controller_client_use_uart_transport(
 
     hmi_controller_transport_set(&s_uart_controller_transport);
     return true;
-}
-
-void hmi_controller_client_process(void)
-{
-    hmi_controller_link_decoded_t decoded;
-    uint32_t processed = 0U;
-
-    while (processed < HMI_CONTROLLER_RX_DRAIN_LIMIT &&
-           hmi_controller_rx_queue_pop(&decoded)) {
-        switch (decoded.type) {
-        case HMI_CONTROLLER_LINK_DECODED_COMMAND_ACCEPTED:
-            handle_command_accepted(&decoded.data.command_accepted);
-            break;
-        case HMI_CONTROLLER_LINK_DECODED_COMMAND_REJECTED:
-            handle_command_rejected(&decoded.data.command_rejected);
-            break;
-        case HMI_CONTROLLER_LINK_DECODED_STATE_SNAPSHOT:
-            handle_state_snapshot(&decoded.data.state_snapshot);
-            break;
-        case HMI_CONTROLLER_LINK_DECODED_NONE:
-        default:
-            break;
-        }
-        processed++;
-    }
 }

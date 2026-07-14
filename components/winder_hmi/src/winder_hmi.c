@@ -8,6 +8,7 @@
 #include "hmi_config.h"
 #include "hmi_coordinator.h"
 #include "hmi_controller_client.h"
+#include "hmi_controller_rx_handler.h"
 #include "hmi_controller_transport.h"
 #include "hmi_event_queue.h"
 #include "hmi_job_draft_model.h"
@@ -206,7 +207,7 @@ bool winder_hmi_post_command_rejected(hmi_command_t command, const char *reason)
 void winder_hmi_tick(void)
 {
     uint32_t now_ms = hmi_now_ms();
-    hmi_controller_client_process();
+    hmi_controller_rx_handler_process();
     process_internal_events();
     hmi_coordinator_on_tick(now_ms);
     if (s_demo_enabled) {
