@@ -21,10 +21,23 @@
 
 static lv_timer_t *s_tick_timer;
 static bool s_demo_enabled;
+static uint32_t s_last_telemetry_request_ms;
 
 static inline uint32_t hmi_now_ms(void)
 {
     return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+}
+
+static void poll_controller_telemetry(uint32_t now_ms)
+{
+    if (hmi_model_get_connection_state() != HMI_CONNECTION_CONNECTED ||
+        (now_ms - s_last_telemetry_request_ms) < HMI_TELEMETRY_POLL_INTERVAL_MS) {
+        return;
+    }
+
+    if (hmi_controller_client_request_telemetry()) {
+        s_last_telemetry_request_ms = now_ms;
+    }
 }
 
 static void hmi_tick_timer_cb(lv_timer_t *timer)
@@ -207,6 +220,7 @@ bool winder_hmi_post_command_rejected(hmi_command_t command, const char *reason)
 void winder_hmi_tick(void)
 {
     uint32_t now_ms = hmi_now_ms();
+    poll_controller_telemetry(now_ms);
     hmi_controller_rx_handler_process();
     process_internal_events();
     hmi_coordinator_on_tick(now_ms);

@@ -45,10 +45,12 @@ typedef struct {
     float carriage_position_mm;
     float travel_range_mm;
     float master_speed_rps;
+    float winding_pitch_mm;
     float speed_override_percent;
     float right_edge_offset_mm;
     float eta_min;
     uint32_t current_layer;
+    uint32_t shift_every_layers;
     uint32_t encoder_count;
     hmi_carriage_direction_t carriage_direction;
     bool left_limit_active;

@@ -94,6 +94,21 @@ static bool test_encode_start_homing_frame_loopback(void)
            frame.payload_len == 0U;
 }
 
+static bool test_encode_get_telemetry_frame(void)
+{
+    hmi_controller_message_t message = {
+        .type = HMI_CONTROLLER_MSG_GET_TELEMETRY,
+    };
+    hmi_controller_link_encoded_t encoded = {0};
+
+    if (!hmi_controller_link_encode_message(&message, &encoded)) {
+        return false;
+    }
+
+    return encoded.type == WINDER_LINK_MSG_GET_TELEMETRY &&
+           encoded.payload_len == 0U;
+}
+
 static bool test_encode_set_speed_override_frame_loopback(void)
 {
     hmi_controller_message_t message = {0};
@@ -416,6 +431,7 @@ static bool test_decode_command_accepted_extra_payload_rejected(void)
 bool hmi_controller_link_codec_selftest(void)
 {
     return test_encode_start_homing_frame_loopback() &&
+           test_encode_get_telemetry_frame() &&
            test_encode_set_speed_override_frame_loopback() &&
            test_encode_start_job_keyed_payload() &&
            test_encode_start_job_unknown_param_rejected() &&

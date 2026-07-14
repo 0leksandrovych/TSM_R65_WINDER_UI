@@ -131,17 +131,21 @@ static void handle_state_snapshot(
     if (snapshot->job_master_speed_present) {
         state.master_speed_rps = (float)snapshot->job_master_speed;
     }
+    if (snapshot->job_winding_pitch_present) {
+        state.winding_pitch_mm = (float)snapshot->job_winding_pitch;
+    }
     if (snapshot->job_target_length_present) {
         state.target_length_m = (float)(snapshot->job_target_length / 1000.0);
+    }
+    if (snapshot->job_shift_every_present) {
+        state.shift_every_layers = (uint32_t)snapshot->job_shift_every;
     }
     if (snapshot->job_right_edge_shift_present) {
         state.right_edge_offset_mm = (float)snapshot->job_right_edge_shift;
     }
 
-    /* job_winding_pitch/job_shift_every are decoded for Phase H3, but the
-     * current hmi_state_t has no dedicated fields for them yet. homing_state,
-     * job_state, progress, wound length, override, error, and event are not
-     * available from controller telemetry yet - Phase H3/future. */
+    /* homing_state, job_state, progress, wound length, override, error, and
+     * event are not available from the current controller telemetry contract. */
 
     (void)post_state_update(&state);
 }

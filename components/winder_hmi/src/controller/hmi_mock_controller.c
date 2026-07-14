@@ -280,6 +280,7 @@ static bool command_for_message_type(hmi_controller_msg_type_t type,
     case HMI_CONTROLLER_MSG_APPLY_EDGE_TRIM:
         *out_command = HMI_CMD_APPLY_EDGE_TRIM;
         return true;
+    case HMI_CONTROLLER_MSG_GET_TELEMETRY:
     case HMI_CONTROLLER_MSG_GET_CAPABILITIES:
     case HMI_CONTROLLER_MSG_NONE:
     default:
@@ -596,6 +597,10 @@ static bool mock_send(const hmi_controller_message_t *message, uint16_t seq, voi
     }
 
     if (message->type == HMI_CONTROLLER_MSG_GET_CAPABILITIES) {
+        return true;
+    }
+    if (message->type == HMI_CONTROLLER_MSG_GET_TELEMETRY) {
+        publish_state();
         return true;
     }
 

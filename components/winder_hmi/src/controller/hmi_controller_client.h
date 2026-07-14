@@ -25,6 +25,9 @@ bool hmi_controller_client_use_uart_transport(
     const hmi_uart_transport_config_t *config
 );
 
+/* Request the latest controller snapshot without creating a tracked command. */
+bool hmi_controller_client_request_telemetry(void);
+
 /* Resolve a controller response to its originating HMI command.
  * The tracked sequence entry is consumed when a match is found. */
 bool hmi_controller_client_resolve_response(

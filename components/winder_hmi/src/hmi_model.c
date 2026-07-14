@@ -19,10 +19,12 @@ void hmi_model_init(void)
     s_state.carriage_position_mm = 0.0f;
     s_state.travel_range_mm = 250.0f;
     s_state.master_speed_rps = 0.0f;
+    s_state.winding_pitch_mm = 0.0f;
     s_state.speed_override_percent = 100.0f;
     s_state.right_edge_offset_mm = 0.0f;
     s_state.eta_min = 0.0f;
     s_state.current_layer = 0;
+    s_state.shift_every_layers = 0;
     s_state.encoder_count = 0;
     s_state.carriage_direction = HMI_CARRIAGE_STOPPED;
     s_state.left_limit_active = false;

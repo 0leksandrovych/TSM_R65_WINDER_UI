@@ -202,6 +202,25 @@ bool hmi_controller_client_resolve_response(
     return command_for_wire_type(original_type, out_command);
 }
 
+bool hmi_controller_client_request_telemetry(void)
+{
+    if (!hmi_controller_transport_is_available()) {
+        return false;
+    }
+
+    hmi_controller_message_t message;
+    if (!hmi_controller_message_init(
+            &message,
+            HMI_CONTROLLER_MSG_GET_TELEMETRY)) {
+        return false;
+    }
+
+    /* STATE_SNAPSHOT has no correlation fields, so this frame sequence must
+     * not consume a command-tracking slot. */
+    const uint16_t seq = allocate_seq();
+    return hmi_controller_transport_send(&message, seq);
+}
+
 /* Build a complete job payload snapshot from the current draft and capability models.
  * This is the single authoritative conversion point from UI draft to controller messages. */
 static bool build_current_job_payload(hmi_controller_job_payload_t *out)

@@ -391,6 +391,8 @@ bool hmi_controller_link_encode_message(
          * only requests applying the already staged edge trim state. It does not
          * transfer trim values. */
         return encode_empty(out_encoded, WINDER_LINK_MSG_APPLY_EDGE_TRIM);
+    case HMI_CONTROLLER_MSG_GET_TELEMETRY:
+        return encode_empty(out_encoded, WINDER_LINK_MSG_GET_TELEMETRY);
     case HMI_CONTROLLER_MSG_NONE:
     case HMI_CONTROLLER_MSG_GET_CAPABILITIES:
     case HMI_CONTROLLER_MSG_VALIDATE_JOB:
