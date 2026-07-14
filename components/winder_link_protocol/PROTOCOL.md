@@ -134,23 +134,24 @@ reason_code     uint16 little-endian
 
 The base contract does not include string reason text. Reason text can be added later only as a bounded optional field if explicitly needed.
 
-## 8. Planned Job Command Payload Contract
+## 8. Job Command Payload Contract
 
-Planned payload for `WINDER_LINK_MSG_VALIDATE_JOB` and `WINDER_LINK_MSG_START_JOB`:
+Payload for `WINDER_LINK_MSG_START_JOB`:
 
 ```text
-mode_id       uint16 little-endian
 param_count   uint8
-
 repeated param_count times:
   param_id    uint16 little-endian
-  value_type  uint8
-  value_i32   int32 little-endian
+  scaled_value int32 little-endian
 ```
 
-`value_i32` is a scaled integer, not a raw float. The exact scale is defined by the parameter schema, not by the transport frame.
+`scaled_value` is a scaled integer, not a raw float. The exact scale is
+defined by `link_param_id_t` in winder_link_contract.h, not by a wire byte.
+No mode_id or value_type field is sent - the controller currently supports
+a single job command with no mode dispatch.
 
-This payload mapping is documented here as a contract target. It is not implemented by the frame codec or payload helpers yet.
+`WINDER_LINK_MSG_VALIDATE_JOB` is not implemented by the controller yet;
+this payload mapping does not apply to it until controller support exists.
 
 ## 9. State Snapshot Payload Contract
 

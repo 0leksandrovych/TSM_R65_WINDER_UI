@@ -123,6 +123,88 @@ static bool test_encode_set_speed_override_frame_loopback(void)
            frame.payload[1] == 0x03U;
 }
 
+static bool test_encode_start_job_keyed_payload(void)
+{
+    hmi_controller_message_t message = {0};
+    message.type = HMI_CONTROLLER_MSG_START_JOB;
+    message.data.job.mode_id = HMI_JOB_MODE_CONICAL;
+    message.data.job.param_count = 5U;
+    message.data.job.params[0] = (hmi_controller_param_value_t){
+        .param_id = 1U,
+        .type = HMI_PARAM_TYPE_FLOAT,
+        .value.f32 = 2.50f,
+    };
+    message.data.job.params[1] = (hmi_controller_param_value_t){
+        .param_id = 2U,
+        .type = HMI_PARAM_TYPE_FLOAT,
+        .value.f32 = 0.80f,
+    };
+    message.data.job.params[2] = (hmi_controller_param_value_t){
+        .param_id = 3U,
+        .type = HMI_PARAM_TYPE_FLOAT,
+        .value.f32 = 120.0f,
+    };
+    message.data.job.params[3] = (hmi_controller_param_value_t){
+        .param_id = 4U,
+        .type = HMI_PARAM_TYPE_UINT32,
+        .value.u32 = 3U,
+    };
+    message.data.job.params[4] = (hmi_controller_param_value_t){
+        .param_id = 5U,
+        .type = HMI_PARAM_TYPE_FLOAT,
+        .value.f32 = 1.00f,
+    };
+
+    hmi_controller_link_encoded_t encoded = {0};
+    if (!hmi_controller_link_encode_message(&message, &encoded)) {
+        return false;
+    }
+
+    winder_link_payload_reader_t reader;
+    if (!winder_link_payload_reader_init(&reader, encoded.payload, encoded.payload_len)) {
+        return false;
+    }
+
+    uint8_t param_count = 0U;
+    if (!winder_link_payload_read_u8(&reader, &param_count) || param_count != 5U) {
+        return false;
+    }
+
+    const uint16_t expected_ids[] = {1U, 2U, 3U, 4U, 5U};
+    const int32_t expected_values[] = {250, 80, 120000, 3, 100};
+    for (size_t i = 0; i < param_count; i++) {
+        uint16_t param_id = 0U;
+        int32_t scaled_value = 0;
+        if (!winder_link_payload_read_u16_le(&reader, &param_id) ||
+            !winder_link_payload_read_i32_le(&reader, &scaled_value)) {
+            return false;
+        }
+        if (param_id != expected_ids[i] || scaled_value != expected_values[i]) {
+            return false;
+        }
+    }
+
+    return encoded.type == WINDER_LINK_MSG_START_JOB &&
+           encoded.payload_len == 31U &&
+           winder_link_payload_reader_done(&reader);
+}
+
+static bool test_encode_start_job_unknown_param_rejected(void)
+{
+    hmi_controller_message_t message = {0};
+    message.type = HMI_CONTROLLER_MSG_START_JOB;
+    message.data.job.mode_id = HMI_JOB_MODE_CONICAL;
+    message.data.job.param_count = 1U;
+    message.data.job.params[0] = (hmi_controller_param_value_t){
+        .param_id = 99U,
+        .type = HMI_PARAM_TYPE_FLOAT,
+        .value.f32 = 1.0f,
+    };
+
+    hmi_controller_link_encoded_t encoded = {0};
+    return !hmi_controller_link_encode_message(&message, &encoded);
+}
+
 static bool encode_payload_frame(
     winder_link_msg_type_t type,
     uint16_t seq,
@@ -234,35 +316,29 @@ static bool test_decode_state_snapshot_frame_loopback(void)
     if (!winder_link_payload_writer_init(&writer, payload, sizeof(payload))) {
         return false;
     }
-    if (!winder_link_payload_write_u8(&writer, 1U)) {
+
+    if (!winder_link_payload_write_u8(&writer, 7U)) {
         return false;
     }
-    if (!winder_link_payload_write_u8(&writer, 2U)) {
-        return false;
-    }
-    if (!winder_link_payload_write_u8(&writer, 3U)) {
-        return false;
-    }
-    if (!winder_link_payload_write_u16_le(&writer, 500U)) {
-        return false;
-    }
-    if (!winder_link_payload_write_u32_le(&writer, 1200U)) {
-        return false;
-    }
-    if (!winder_link_payload_write_u32_le(&writer, 5000U)) {
-        return false;
-    }
-    if (!winder_link_payload_write_u16_le(&writer, 250U)) {
-        return false;
-    }
-    if (!winder_link_payload_write_u16_le(&writer, 850U)) {
-        return false;
-    }
-    if (!winder_link_payload_write_u16_le(&writer, 0U)) {
-        return false;
-    }
-    if (!winder_link_payload_write_u16_le(&writer, 7U)) {
-        return false;
+
+    const struct {
+        uint16_t field_id;
+        int32_t scaled_value;
+    } fields[] = {
+        { 1U, 3 },
+        { 0x9999U, 123 },
+        { 2U, 250 },
+        { 3U, 80 },
+        { 4U, 120000 },
+        { 5U, 3 },
+        { 6U, 100 },
+    };
+
+    for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++) {
+        if (!winder_link_payload_write_u16_le(&writer, fields[i].field_id) ||
+            !winder_link_payload_write_i32_le(&writer, fields[i].scaled_value)) {
+            return false;
+        }
     }
 
     winder_link_frame_t frame = {0};
@@ -286,16 +362,18 @@ static bool test_decode_state_snapshot_frame_loopback(void)
 
     const hmi_controller_link_state_snapshot_t *state = &decoded.data.state_snapshot;
     return decoded.type == HMI_CONTROLLER_LINK_DECODED_STATE_SNAPSHOT &&
-           state->machine_state == 1U &&
-           state->homing_state == 2U &&
-           state->job_state == 3U &&
-           state->progress_permille == 500U &&
-           state->wound_length_mm == 1200U &&
-           state->target_length_mm == 5000U &&
-           state->master_speed_centirps == 250U &&
-           state->speed_override_permille == 850U &&
-           state->error_code == 0U &&
-           state->event_code == 7U;
+           state->machine_state_present &&
+           state->machine_state == 3U &&
+           state->job_master_speed_present &&
+           state->job_master_speed == 2.5 &&
+           state->job_winding_pitch_present &&
+           state->job_winding_pitch == 0.8 &&
+           state->job_target_length_present &&
+           state->job_target_length == 120.0 &&
+           state->job_shift_every_present &&
+           state->job_shift_every == 3.0 &&
+           state->job_right_edge_shift_present &&
+           state->job_right_edge_shift == 1.0;
 }
 
 static bool test_decode_command_accepted_truncated_payload_rejected(void)
@@ -339,6 +417,8 @@ bool hmi_controller_link_codec_selftest(void)
 {
     return test_encode_start_homing_frame_loopback() &&
            test_encode_set_speed_override_frame_loopback() &&
+           test_encode_start_job_keyed_payload() &&
+           test_encode_start_job_unknown_param_rejected() &&
            test_decode_command_accepted_frame_loopback() &&
            test_decode_command_rejected_frame_loopback() &&
            test_decode_state_snapshot_frame_loopback() &&

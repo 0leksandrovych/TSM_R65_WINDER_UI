@@ -32,16 +32,23 @@ typedef struct {
 } hmi_controller_link_command_rejected_t;
 
 typedef struct {
+    bool machine_state_present;
     uint8_t machine_state;
-    uint8_t homing_state;
-    uint8_t job_state;
-    uint16_t progress_permille;
-    uint32_t wound_length_mm;
-    uint32_t target_length_mm;
-    uint16_t master_speed_centirps;
-    uint16_t speed_override_permille;
-    uint16_t error_code;
-    uint16_t event_code;
+
+    bool job_master_speed_present;
+    double job_master_speed;
+
+    bool job_winding_pitch_present;
+    double job_winding_pitch;
+
+    bool job_target_length_present;
+    double job_target_length;
+
+    bool job_shift_every_present;
+    double job_shift_every;
+
+    bool job_right_edge_shift_present;
+    double job_right_edge_shift;
 } hmi_controller_link_state_snapshot_t;
 
 typedef struct {
