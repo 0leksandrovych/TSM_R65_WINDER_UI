@@ -22,7 +22,6 @@ typedef struct {
 
 typedef enum {
     SNAPSHOT_VALUE_MACHINE_STATE = 0,
-    SNAPSHOT_VALUE_HOMING_STATE,
     SNAPSHOT_VALUE_DOUBLE,
 } snapshot_value_type_t;
 
@@ -49,13 +48,6 @@ static const snapshot_field_binding_t snapshot_field_bindings[] = {
         offsetof(hmi_controller_link_state_snapshot_t, machine_state),
         offsetof(hmi_controller_link_state_snapshot_t, machine_state_present),
         SNAPSHOT_VALUE_MACHINE_STATE,
-    },
-    {
-        LINK_FIELD_HOMING_STATE,
-        1.0,
-        offsetof(hmi_controller_link_state_snapshot_t, homing_state),
-        offsetof(hmi_controller_link_state_snapshot_t, homing_state_present),
-        SNAPSHOT_VALUE_HOMING_STATE,
     },
     {
         LINK_FIELD_JOB_MASTER_SPEED,
@@ -90,6 +82,13 @@ static const snapshot_field_binding_t snapshot_field_bindings[] = {
         100.0,
         offsetof(hmi_controller_link_state_snapshot_t, job_right_edge_shift),
         offsetof(hmi_controller_link_state_snapshot_t, job_right_edge_shift_present),
+        SNAPSHOT_VALUE_DOUBLE,
+    },
+    {
+        LINK_FIELD_TRAVEL_RANGE_MM,
+        100.0,
+        offsetof(hmi_controller_link_state_snapshot_t, travel_range_mm),
+        offsetof(hmi_controller_link_state_snapshot_t, travel_range_mm_present),
         SNAPSHOT_VALUE_DOUBLE,
     },
 };
@@ -305,11 +304,6 @@ static bool apply_snapshot_field(
     case SNAPSHOT_VALUE_MACHINE_STATE:
         *(link_machine_state_t *)(base + binding->value_offset) =
             (link_machine_state_t)scaled_value;
-        *present = true;
-        return true;
-    case SNAPSHOT_VALUE_HOMING_STATE:
-        *(link_homing_state_t *)(base + binding->value_offset) =
-            (link_homing_state_t)scaled_value;
         *present = true;
         return true;
     case SNAPSHOT_VALUE_DOUBLE:

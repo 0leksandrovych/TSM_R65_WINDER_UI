@@ -43,16 +43,16 @@ static hmi_controller_message_t s_pending_message;
 
 static const hmi_state_t s_ready_state = {
     .machine_state          = HMI_MACHINE_HOMING_REQUIRED,
-    .homing_state           = HMI_HOMING_REQUIRED,
+    .machine_state_known    = true,
     .job_state              = HMI_JOB_NOT_CONFIGURED,
     .selected_mode          = "Conical Winding",
-    .homing_step            = "Ready to start",
     .unwound_length_m       = 0.0f,
     .wound_length_m         = 0.0f,
     .target_length_m        = 125.0f,
     .progress_percent       = 0.0f,
     .carriage_position_mm   = 0.0f,
-    .travel_range_mm        = 250.0f,
+    .travel_range_mm        = 0.0,
+    .travel_range_known     = false,
     .master_speed_rps       = 0.0f,
     .speed_override_percent = 100.0f,
     .right_edge_offset_mm   = 0.0f,
@@ -293,13 +293,13 @@ static void enter_homing(void)
     s_homing_active = true;
     s_run_active    = false;
     s_homing_elapsed_ms = 0;
-    s_state.machine_state       = HMI_MACHINE_HOMING_REQUIRED;
-    s_state.homing_state        = HMI_HOMING_IN_PROGRESS;
-    s_state.homing_step         = "Moving to left limit";
+    s_state.machine_state       = HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE;
+    s_state.machine_state_known = true;
     s_state.left_limit_active   = false;
     s_state.right_limit_active  = false;
     s_state.carriage_position_mm = 125.0f;
-    s_state.travel_range_mm     = 250.0f;
+    s_state.travel_range_mm     = 0.0;
+    s_state.travel_range_known  = false;
     s_state.master_speed_rps    = 0.0f;
     s_state.carriage_direction  = HMI_CARRIAGE_STOPPED;
     s_state.motor_state         = "Homing";
@@ -312,10 +312,10 @@ static void finish_homing(void)
 {
     s_homing_active = false;
     s_state.machine_state        = HMI_MACHINE_READY;
-    s_state.homing_state         = HMI_HOMING_OK;
-    s_state.homing_step          = "Complete";
+    s_state.machine_state_known  = true;
     s_state.carriage_position_mm = 0.0f;
-    s_state.travel_range_mm      = 250.0f;
+    s_state.travel_range_mm      = 250.0;
+    s_state.travel_range_known   = true;
     s_state.left_limit_active    = true;
     s_state.right_limit_active   = false;
     s_state.master_speed_rps     = 0.0f;
@@ -329,8 +329,7 @@ static void abort_homing(void)
     s_homing_active = false;
     s_run_active    = false;
     s_state.machine_state        = HMI_MACHINE_HOMING_REQUIRED;
-    s_state.homing_state         = HMI_HOMING_REQUIRED;
-    s_state.homing_step          = "Ready to start";
+    s_state.machine_state_known  = true;
     s_state.master_speed_rps     = 0.0f;
     s_state.carriage_position_mm = 0.0f;
     s_state.left_limit_active    = false;
@@ -349,7 +348,7 @@ static void start_run(const hmi_controller_job_payload_t *job)
     s_run_active    = true;
     s_run_update_elapsed_ms = 0;
     s_state.machine_state           = HMI_MACHINE_RUNNING;
-    s_state.homing_state            = HMI_HOMING_OK;
+    s_state.machine_state_known     = true;
     s_state.job_state               = HMI_JOB_VALID;
     s_state.selected_mode           = active_mode_title(job->mode_id);
     s_state.wound_length_m          = 0.0f;
@@ -359,7 +358,8 @@ static void start_run(const hmi_controller_job_payload_t *job)
     s_state.speed_override_percent  = 100.0f;
     s_state.current_layer           = 1;
     s_state.carriage_position_mm    = 0.0f;
-    s_state.travel_range_mm         = 250.0f;
+    s_state.travel_range_mm         = 250.0;
+    s_state.travel_range_known      = true;
     s_state.right_edge_offset_mm    = 0.0f;
     s_state.carriage_direction      = HMI_CARRIAGE_RIGHT;
     s_state.motor_state             = "Running";
@@ -479,7 +479,6 @@ static void execute_pending_operation(void)
         s_state.last_error = NULL;
         if (s_state.machine_state == HMI_MACHINE_ALARM) {
             s_state.machine_state = HMI_MACHINE_HOMING_REQUIRED;
-            s_state.homing_state  = HMI_HOMING_REQUIRED;
         }
         s_state.last_event = "Alarm reset";
         publish_state();
@@ -508,21 +507,32 @@ static void update_homing(uint32_t elapsed_ms)
         return;
     }
 
-    if (s_homing_elapsed_ms < 450U) {
-        s_state.homing_step          = "Moving to left limit";
+    if (s_homing_elapsed_ms < 200U) {
+        s_state.machine_state        = HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE;
         s_state.carriage_position_mm = 125.0f - ((float)s_homing_elapsed_ms * 0.18f);
         if (s_state.carriage_position_mm < 0.0f) {
             s_state.carriage_position_mm = 0.0f;
         }
         s_state.left_limit_active = false;
-    } else if (s_homing_elapsed_ms < 900U) {
-        s_state.homing_step          = "Backoff";
+    } else if (s_homing_elapsed_ms < 400U) {
+        s_state.machine_state        = HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE;
         s_state.carriage_position_mm = 12.0f;
-        s_state.left_limit_active    = true;
-    } else {
-        s_state.homing_step          = "Slow approach";
+        s_state.right_limit_active   = true;
+    } else if (s_homing_elapsed_ms < 600U) {
+        s_state.machine_state        = HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE;
         s_state.carriage_position_mm = 6.0f;
-        s_state.left_limit_active    = false;
+        s_state.right_limit_active   = false;
+    } else if (s_homing_elapsed_ms < 800U) {
+        s_state.machine_state        = HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE;
+        s_state.left_limit_active    = true;
+    } else if (s_homing_elapsed_ms < 1000U) {
+        s_state.machine_state        = HMI_MACHINE_HOMING_MEASURING_TRAVEL;
+        s_state.travel_range_mm      = 250.0;
+        s_state.travel_range_known   = true;
+    } else if (s_homing_elapsed_ms < 1200U) {
+        s_state.machine_state        = HMI_MACHINE_HOMING_APPLYING_OFFSET;
+    } else {
+        s_state.machine_state        = HMI_MACHINE_HOMING_COMPLETING;
     }
 }
 
@@ -555,8 +565,8 @@ static void update_run(uint32_t elapsed_ms)
 
     if (s_state.carriage_direction == HMI_CARRIAGE_RIGHT) {
         s_state.carriage_position_mm += 12.0f;
-        if (s_state.carriage_position_mm >= s_state.travel_range_mm) {
-            s_state.carriage_position_mm = s_state.travel_range_mm;
+        if ((double)s_state.carriage_position_mm >= s_state.travel_range_mm) {
+            s_state.carriage_position_mm = (float)s_state.travel_range_mm;
             s_state.carriage_direction   = HMI_CARRIAGE_LEFT;
             s_state.current_layer++;
         }
@@ -569,7 +579,7 @@ static void update_run(uint32_t elapsed_ms)
         }
     }
 
-    s_state.right_edge_offset_mm = s_state.travel_range_mm - s_state.carriage_position_mm;
+    s_state.right_edge_offset_mm = (float)(s_state.travel_range_mm - s_state.carriage_position_mm);
     s_state.eta_min = (s_state.target_length_m - s_state.wound_length_m) / 12.0f;
     if (s_state.eta_min < 0.0f) {
         s_state.eta_min = 0.0f;

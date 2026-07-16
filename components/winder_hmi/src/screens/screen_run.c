@@ -349,7 +349,7 @@ void screen_run_update(const hmi_state_t *state)
     }
 
     char value[40];
-    widget_status_badge_update(&s_screen.badge, state->machine_state);
+    widget_status_badge_update(&s_screen.badge, state);
     hmi_pending_command_t pending = hmi_pending_command_get();
     bool pause_pending = pending == HMI_PENDING_PAUSE_JOB;
     bool resume_pending = pending == HMI_PENDING_RESUME_JOB;
@@ -375,8 +375,9 @@ void screen_run_update(const hmi_state_t *state)
     snprintf(value, sizeof(value), "%.1f min", (double)state->eta_min);
     value_card_set(&s_screen.eta, value, HMI_COLOR_NEUTRAL);
 
-    float range = state->travel_range_mm > 1.0f ? state->travel_range_mm : 250.0f;
-    int32_t x = 22 + (int32_t)((state->carriage_position_mm / range) * 250.0f);
+    double range = state->travel_range_known && state->travel_range_mm > 1.0 ?
+        state->travel_range_mm : 250.0;
+    int32_t x = 22 + (int32_t)(((double)state->carriage_position_mm / range) * 250.0);
     if (x < 22) {
         x = 22;
     } else if (x > 272) {
@@ -393,7 +394,7 @@ void screen_run_update(const hmi_state_t *state)
         lv_label_set_text(s_screen.direction_label, "STOP");
     }
 
-    snprintf(value, sizeof(value), "%.1f mm", (double)range);
+    snprintf(value, sizeof(value), "%.1f mm", range);
     lv_label_set_text(s_screen.right_edge_label, value);
     lv_obj_align(s_screen.right_edge_label, LV_ALIGN_BOTTOM_RIGHT, -12, -8);
 

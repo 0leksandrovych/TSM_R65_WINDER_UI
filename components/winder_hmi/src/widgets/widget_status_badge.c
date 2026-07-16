@@ -1,16 +1,25 @@
 #include "widget_status_badge.h"
 
+#include "hmi_model.h"
 #include "hmi_styles.h"
 
 static const char *machine_state_text(hmi_machine_state_t state)
 {
     switch (state) {
-    case HMI_MACHINE_BOOTING:
-        return "BOOTING";
     case HMI_MACHINE_HOMING_REQUIRED:
         return "HOMING REQUIRED";
+    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
+    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
+    case HMI_MACHINE_HOMING_COMPLETING:
+        return "HOMING";
     case HMI_MACHINE_READY:
         return "READY";
+    case HMI_MACHINE_ACCELERATING:
+        return "ACCELERATING";
     case HMI_MACHINE_RUNNING:
         return "RUNNING";
     case HMI_MACHINE_PAUSED:
@@ -32,13 +41,20 @@ static lv_style_t *badge_style_for_state(hmi_machine_state_t state)
 
     switch (state) {
     case HMI_MACHINE_READY:
+    case HMI_MACHINE_ACCELERATING:
     case HMI_MACHINE_RUNNING:
     case HMI_MACHINE_FINISHED:
         return &styles->badge_green;
     case HMI_MACHINE_HOMING_REQUIRED:
+    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
+    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
+    case HMI_MACHINE_HOMING_COMPLETING:
     case HMI_MACHINE_PAUSED:
     case HMI_MACHINE_STOPPING:
-    case HMI_MACHINE_BOOTING:
         return &styles->badge_amber;
     case HMI_MACHINE_ALARM:
         return &styles->badge_red;
@@ -56,12 +72,12 @@ void widget_status_badge_create(lv_obj_t *parent, hmi_status_badge_t *badge)
     hmi_styles_t *styles = hmi_styles_get();
     badge->label = lv_label_create(parent);
     lv_obj_add_style(badge->label, &styles->badge_base, 0);
-    lv_label_set_text(badge->label, "BOOTING");
+    lv_label_set_text(badge->label, "CONNECTING");
 }
 
-void widget_status_badge_update(hmi_status_badge_t *badge, hmi_machine_state_t state)
+void widget_status_badge_update(hmi_status_badge_t *badge, const hmi_state_t *state)
 {
-    if (badge == NULL || badge->label == NULL) {
+    if (badge == NULL || badge->label == NULL || state == NULL) {
         return;
     }
 
@@ -72,6 +88,15 @@ void widget_status_badge_update(hmi_status_badge_t *badge, hmi_machine_state_t s
     lv_obj_remove_style(badge->label, &styles->badge_blue, 0);
     lv_obj_remove_style(badge->label, &styles->badge_dim, 0);
 
-    lv_obj_add_style(badge->label, badge_style_for_state(state), 0);
-    lv_label_set_text(badge->label, machine_state_text(state));
+    hmi_connection_state_t connection = hmi_model_get_connection_state();
+    if (connection == HMI_CONNECTION_LOST || connection == HMI_CONNECTION_DISCONNECTED) {
+        lv_obj_add_style(badge->label, &styles->badge_red, 0);
+        lv_label_set_text(badge->label, "DISCONNECTED");
+    } else if (connection == HMI_CONNECTION_CONNECTING || !state->machine_state_known) {
+        lv_obj_add_style(badge->label, &styles->badge_amber, 0);
+        lv_label_set_text(badge->label, "CONNECTING");
+    } else {
+        lv_obj_add_style(badge->label, badge_style_for_state(state->machine_state), 0);
+        lv_label_set_text(badge->label, machine_state_text(state->machine_state));
+    }
 }

@@ -15,6 +15,22 @@ static inline uint32_t hmi_now_ms(void)
     return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
 }
 
+static bool machine_is_homing(hmi_machine_state_t state)
+{
+    switch (state) {
+    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
+    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
+    case HMI_MACHINE_HOMING_COMPLETING:
+        return true;
+    default:
+        return false;
+    }
+}
+
 void hmi_actions_home_primary(void)
 {
     const hmi_state_t *state = hmi_model_get_state();
@@ -22,7 +38,8 @@ void hmi_actions_home_primary(void)
         return;
     }
 
-    if (state->machine_state == HMI_MACHINE_HOMING_REQUIRED) {
+    if (state->machine_state == HMI_MACHINE_HOMING_REQUIRED ||
+        machine_is_homing(state->machine_state)) {
         hmi_navigation_show(HMI_SCREEN_HOMING);
         return;
     }
@@ -37,7 +54,8 @@ void hmi_actions_home_primary(void)
         return;
     }
 
-    if (state->machine_state == HMI_MACHINE_RUNNING ||
+    if (state->machine_state == HMI_MACHINE_ACCELERATING ||
+        state->machine_state == HMI_MACHINE_RUNNING ||
         state->machine_state == HMI_MACHINE_PAUSED ||
         state->machine_state == HMI_MACHINE_STOPPING) {
         hmi_actions_open_run();

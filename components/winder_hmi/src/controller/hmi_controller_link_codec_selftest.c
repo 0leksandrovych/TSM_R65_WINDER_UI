@@ -373,106 +373,89 @@ static bool decode_snapshot_fields(
         out_decoded);
 }
 
-static bool test_decode_valid_machine_state(void)
+static bool test_machine_state_numeric_contract(void)
 {
-    const snapshot_test_field_t fields[] = {
-        { LINK_FIELD_MACHINE_STATE, LINK_MACHINE_STATE_READY },
-    };
-    hmi_controller_link_decoded_t decoded = {0};
-
-    if (!decode_snapshot_fields(fields, 1U, &decoded)) {
-        return false;
-    }
-
-    const hmi_controller_link_state_snapshot_t *state = &decoded.data.state_snapshot;
-    return decoded.type == HMI_CONTROLLER_LINK_DECODED_STATE_SNAPSHOT &&
-           state->machine_state_present &&
-           state->machine_state == LINK_MACHINE_STATE_READY;
+    return LINK_MACHINE_STATE_HOMING_REQUIRED == 0 &&
+           LINK_MACHINE_STATE_HOMING_SEARCHING_RIGHT_REFERENCE == 1 &&
+           LINK_MACHINE_STATE_HOMING_BACKING_OFF_RIGHT_REFERENCE == 2 &&
+           LINK_MACHINE_STATE_HOMING_SEARCHING_LEFT_REFERENCE == 3 &&
+           LINK_MACHINE_STATE_HOMING_BACKING_OFF_LEFT_REFERENCE == 4 &&
+           LINK_MACHINE_STATE_HOMING_MEASURING_TRAVEL == 5 &&
+           LINK_MACHINE_STATE_HOMING_APPLYING_OFFSET == 6 &&
+           LINK_MACHINE_STATE_HOMING_COMPLETING == 7 &&
+           LINK_MACHINE_STATE_READY == 8 &&
+           LINK_MACHINE_STATE_ACCELERATING == 9 &&
+           LINK_MACHINE_STATE_RUNNING == 10 &&
+           LINK_MACHINE_STATE_PAUSED == 11 &&
+           LINK_MACHINE_STATE_STOPPING == 12 &&
+           LINK_MACHINE_STATE_FINISHED == 13 &&
+           LINK_MACHINE_STATE_ALARM == 14 &&
+           LINK_FIELD_TRAVEL_RANGE_MM == 8 &&
+           WINDER_LINK_MSG_ABORT_HOMING == 0x06;
 }
 
-static bool test_decode_valid_homing_state(void)
+static bool test_machine_state_mapper(void)
 {
-    const snapshot_test_field_t fields[] = {
-        { LINK_FIELD_HOMING_STATE, LINK_HOMING_STATE_COMPLETE },
+    static const struct {
+        link_machine_state_t link_state;
+        hmi_machine_state_t hmi_state;
+    } cases[] = {
+        { LINK_MACHINE_STATE_HOMING_REQUIRED, HMI_MACHINE_HOMING_REQUIRED },
+        { LINK_MACHINE_STATE_HOMING_SEARCHING_RIGHT_REFERENCE, HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE },
+        { LINK_MACHINE_STATE_HOMING_BACKING_OFF_RIGHT_REFERENCE, HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE },
+        { LINK_MACHINE_STATE_HOMING_SEARCHING_LEFT_REFERENCE, HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE },
+        { LINK_MACHINE_STATE_HOMING_BACKING_OFF_LEFT_REFERENCE, HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE },
+        { LINK_MACHINE_STATE_HOMING_MEASURING_TRAVEL, HMI_MACHINE_HOMING_MEASURING_TRAVEL },
+        { LINK_MACHINE_STATE_HOMING_APPLYING_OFFSET, HMI_MACHINE_HOMING_APPLYING_OFFSET },
+        { LINK_MACHINE_STATE_HOMING_COMPLETING, HMI_MACHINE_HOMING_COMPLETING },
+        { LINK_MACHINE_STATE_READY, HMI_MACHINE_READY },
+        { LINK_MACHINE_STATE_ACCELERATING, HMI_MACHINE_ACCELERATING },
+        { LINK_MACHINE_STATE_RUNNING, HMI_MACHINE_RUNNING },
+        { LINK_MACHINE_STATE_PAUSED, HMI_MACHINE_PAUSED },
+        { LINK_MACHINE_STATE_STOPPING, HMI_MACHINE_STOPPING },
+        { LINK_MACHINE_STATE_FINISHED, HMI_MACHINE_FINISHED },
+        { LINK_MACHINE_STATE_ALARM, HMI_MACHINE_ALARM },
     };
-    hmi_controller_link_decoded_t decoded = {0};
 
-    if (!decode_snapshot_fields(fields, 1U, &decoded)) {
-        return false;
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        hmi_machine_state_t mapped = HMI_MACHINE_ALARM;
+        if (!hmi_link_state_mapper_machine_state(cases[i].link_state, &mapped) ||
+            mapped != cases[i].hmi_state) {
+            return false;
+        }
     }
 
-    const hmi_controller_link_state_snapshot_t *state = &decoded.data.state_snapshot;
-    return decoded.type == HMI_CONTROLLER_LINK_DECODED_STATE_SNAPSHOT &&
-           state->homing_state_present &&
-           state->homing_state == LINK_HOMING_STATE_COMPLETE;
+    hmi_machine_state_t unchanged = HMI_MACHINE_READY;
+    return !hmi_link_state_mapper_machine_state((link_machine_state_t)99, &unchanged) &&
+           unchanged == HMI_MACHINE_READY &&
+           !hmi_link_state_mapper_machine_state(LINK_MACHINE_STATE_READY, NULL);
 }
 
-static bool test_decode_snapshot_with_machine_and_homing_states(void)
+static bool test_encode_abort_homing_frame_loopback(void)
 {
-    const snapshot_test_field_t fields[] = {
-        { LINK_FIELD_MACHINE_STATE, LINK_MACHINE_STATE_HOMING },
-        { LINK_FIELD_HOMING_STATE, LINK_HOMING_STATE_IN_PROGRESS },
+    hmi_controller_message_t message = {
+        .type = HMI_CONTROLLER_MSG_ABORT_HOMING,
     };
-    hmi_controller_link_decoded_t decoded = {0};
-
-    if (!decode_snapshot_fields(fields, 2U, &decoded)) {
+    hmi_controller_link_encoded_t encoded = {0};
+    if (!hmi_controller_link_encode_message(&message, &encoded)) {
         return false;
     }
 
-    const hmi_controller_link_state_snapshot_t *state = &decoded.data.state_snapshot;
-    return state->machine_state_present &&
-           state->machine_state == LINK_MACHINE_STATE_HOMING &&
-           state->homing_state_present &&
-           state->homing_state == LINK_HOMING_STATE_IN_PROGRESS;
-}
-
-static bool test_decode_unknown_snapshot_field_is_ignored(void)
-{
-    const snapshot_test_field_t fields[] = {
-        { 0x9999U, 123 },
-        { LINK_FIELD_MACHINE_STATE, LINK_MACHINE_STATE_RUNNING },
-    };
-    hmi_controller_link_decoded_t decoded = {0};
-
-    if (!decode_snapshot_fields(fields, 2U, &decoded)) {
-        return false;
-    }
-
-    const hmi_controller_link_state_snapshot_t *state = &decoded.data.state_snapshot;
-    return state->machine_state_present &&
-           state->machine_state == LINK_MACHINE_STATE_RUNNING &&
-           !state->homing_state_present;
-}
-
-static bool test_unsupported_enum_values_do_not_map(void)
-{
-    const snapshot_test_field_t fields[] = {
-        { LINK_FIELD_MACHINE_STATE, 99 },
-        { LINK_FIELD_HOMING_STATE, 99 },
-    };
-    hmi_controller_link_decoded_t decoded = {0};
-
-    if (!decode_snapshot_fields(fields, 2U, &decoded)) {
-        return false;
-    }
-
-    const hmi_controller_link_state_snapshot_t *snapshot = &decoded.data.state_snapshot;
-    hmi_machine_state_t machine_state = HMI_MACHINE_READY;
-    hmi_homing_state_t homing_state = HMI_HOMING_OK;
-
-    return snapshot->machine_state_present &&
-           snapshot->homing_state_present &&
-           !hmi_link_state_mapper_machine_state(snapshot->machine_state, &machine_state) &&
-           machine_state == HMI_MACHINE_READY &&
-           !hmi_link_state_mapper_homing_state(snapshot->homing_state, &homing_state) &&
-           homing_state == HMI_HOMING_OK;
+    uint8_t frame_bytes[HMI_LINK_SELFTEST_MAX_FRAME_SIZE] = {0};
+    size_t frame_len = 0U;
+    winder_link_frame_t frame = {0};
+    return encode_frame_from_encoded(&encoded, 0x1250U, frame_bytes, sizeof(frame_bytes), &frame_len) &&
+           decode_frame_from_bytes(frame_bytes, frame_len, &frame) &&
+           frame.type == WINDER_LINK_MSG_ABORT_HOMING &&
+           frame.seq == 0x1250U &&
+           frame.payload_len == 0U;
 }
 
 static bool test_decode_state_snapshot_frame_loopback(void)
 {
     const snapshot_test_field_t fields[] = {
-        { LINK_FIELD_MACHINE_STATE, LINK_MACHINE_STATE_READY },
-        { LINK_FIELD_HOMING_STATE, LINK_HOMING_STATE_COMPLETE },
+        { LINK_FIELD_MACHINE_STATE, LINK_MACHINE_STATE_HOMING_MEASURING_TRAVEL },
+        { LINK_FIELD_TRAVEL_RANGE_MM, 25025 },
         { LINK_FIELD_JOB_MASTER_SPEED, 250 },
         { LINK_FIELD_JOB_WINDING_PITCH, 80 },
         { LINK_FIELD_JOB_TARGET_LENGTH, 120000 },
@@ -481,29 +464,77 @@ static bool test_decode_state_snapshot_frame_loopback(void)
     };
     hmi_controller_link_decoded_t decoded = {0};
 
-    if (!decode_snapshot_fields(
-            fields,
-            sizeof(fields) / sizeof(fields[0]),
-            &decoded)) {
+    if (!decode_snapshot_fields(fields, sizeof(fields) / sizeof(fields[0]), &decoded)) {
         return false;
     }
 
     const hmi_controller_link_state_snapshot_t *state = &decoded.data.state_snapshot;
     return decoded.type == HMI_CONTROLLER_LINK_DECODED_STATE_SNAPSHOT &&
            state->machine_state_present &&
-           state->machine_state == LINK_MACHINE_STATE_READY &&
-           state->homing_state_present &&
-           state->homing_state == LINK_HOMING_STATE_COMPLETE &&
-           state->job_master_speed_present &&
-           state->job_master_speed == 2.5 &&
-           state->job_winding_pitch_present &&
-           state->job_winding_pitch == 0.8 &&
-           state->job_target_length_present &&
-           state->job_target_length == 120.0 &&
-           state->job_shift_every_present &&
-           state->job_shift_every == 3.0 &&
-           state->job_right_edge_shift_present &&
-           state->job_right_edge_shift == 1.0;
+           state->machine_state == LINK_MACHINE_STATE_HOMING_MEASURING_TRAVEL &&
+           state->travel_range_mm_present &&
+           state->travel_range_mm == 250.25 &&
+           state->job_master_speed_present && state->job_master_speed == 2.5 &&
+           state->job_winding_pitch_present && state->job_winding_pitch == 0.8 &&
+           state->job_target_length_present && state->job_target_length == 120.0 &&
+           state->job_shift_every_present && state->job_shift_every == 3.0 &&
+           state->job_right_edge_shift_present && state->job_right_edge_shift == 1.0;
+}
+
+static bool test_decode_travel_range_values(void)
+{
+    const snapshot_test_field_t zero_field[] = {
+        { LINK_FIELD_TRAVEL_RANGE_MM, 0 },
+    };
+    const snapshot_test_field_t negative_field[] = {
+        { LINK_FIELD_TRAVEL_RANGE_MM, -125 },
+    };
+    hmi_controller_link_decoded_t zero = {0};
+    hmi_controller_link_decoded_t negative = {0};
+
+    return decode_snapshot_fields(zero_field, 1U, &zero) &&
+           zero.data.state_snapshot.travel_range_mm_present &&
+           zero.data.state_snapshot.travel_range_mm == 0.0 &&
+           decode_snapshot_fields(negative_field, 1U, &negative) &&
+           negative.data.state_snapshot.travel_range_mm_present &&
+           negative.data.state_snapshot.travel_range_mm == -1.25;
+}
+
+static bool test_unknown_and_missing_fields(void)
+{
+    const snapshot_test_field_t fields[] = {
+        { 7U, 3 },
+        { 0x9999U, 123 },
+        { LINK_FIELD_MACHINE_STATE, LINK_MACHINE_STATE_RUNNING },
+    };
+    hmi_controller_link_decoded_t decoded = {0};
+    hmi_controller_link_decoded_t empty = {0};
+
+    if (!decode_snapshot_fields(fields, sizeof(fields) / sizeof(fields[0]), &decoded) ||
+        !decode_snapshot_fields(NULL, 0U, &empty)) {
+        return false;
+    }
+
+    return decoded.data.state_snapshot.machine_state_present &&
+           decoded.data.state_snapshot.machine_state == LINK_MACHINE_STATE_RUNNING &&
+           !decoded.data.state_snapshot.travel_range_mm_present &&
+           !empty.data.state_snapshot.travel_range_mm_present;
+}
+
+static bool test_unknown_machine_state_does_not_map(void)
+{
+    const snapshot_test_field_t fields[] = {
+        { LINK_FIELD_MACHINE_STATE, 99 },
+    };
+    hmi_controller_link_decoded_t decoded = {0};
+    hmi_machine_state_t local_state = HMI_MACHINE_READY;
+
+    return decode_snapshot_fields(fields, 1U, &decoded) &&
+           decoded.data.state_snapshot.machine_state_present &&
+           !hmi_link_state_mapper_machine_state(
+               decoded.data.state_snapshot.machine_state,
+               &local_state) &&
+           local_state == HMI_MACHINE_READY;
 }
 
 static bool test_decode_command_accepted_truncated_payload_rejected(void)
@@ -546,18 +577,19 @@ static bool test_decode_command_accepted_extra_payload_rejected(void)
 bool hmi_controller_link_codec_selftest(void)
 {
     return test_encode_start_homing_frame_loopback() &&
+           test_encode_abort_homing_frame_loopback() &&
            test_encode_get_telemetry_frame() &&
            test_encode_set_speed_override_frame_loopback() &&
            test_encode_start_job_keyed_payload() &&
            test_encode_start_job_unknown_param_rejected() &&
            test_decode_command_accepted_frame_loopback() &&
            test_decode_command_rejected_frame_loopback() &&
-           test_decode_valid_machine_state() &&
-           test_decode_valid_homing_state() &&
-           test_decode_snapshot_with_machine_and_homing_states() &&
-           test_decode_unknown_snapshot_field_is_ignored() &&
-           test_unsupported_enum_values_do_not_map() &&
+           test_machine_state_numeric_contract() &&
+           test_machine_state_mapper() &&
            test_decode_state_snapshot_frame_loopback() &&
+           test_decode_travel_range_values() &&
+           test_unknown_and_missing_fields() &&
+           test_unknown_machine_state_does_not_map() &&
            test_decode_command_accepted_truncated_payload_rejected() &&
            test_decode_command_accepted_extra_payload_rejected();
 }

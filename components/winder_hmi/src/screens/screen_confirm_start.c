@@ -45,7 +45,8 @@ static bool can_start(const hmi_state_t *state)
 {
     const hmi_job_validation_t *validation = hmi_job_draft_model_get_validation();
     return state != NULL &&
-           state->homing_state == HMI_HOMING_OK &&
+           state->machine_state_known &&
+           state->machine_state == HMI_MACHINE_READY &&
            state->safety_ok &&
            state->job_state == HMI_JOB_VALID &&
            validation->valid;
@@ -74,9 +75,10 @@ static void set_button_dimmed(lv_obj_t *button, bool dimmed)
     }
 }
 
-static const char *homing_text(hmi_homing_state_t state)
+static const char *homing_text(const hmi_state_t *state)
 {
-    return state == HMI_HOMING_OK ? "OK" : "REQUIRED";
+    return state != NULL && state->machine_state_known &&
+           state->machine_state == HMI_MACHINE_READY ? "OK" : "REQUIRED";
 }
 
 static const char *job_text(hmi_job_state_t state)
@@ -249,7 +251,7 @@ void screen_confirm_start_update(const hmi_state_t *state)
         hmi_capability_model_get_mode_by_id(hmi_job_draft_model_get_mode());
     bool start_pending = hmi_pending_command_get() == HMI_PENDING_START_JOB;
 
-    widget_status_badge_update(&s_screen.badge, state->machine_state);
+    widget_status_badge_update(&s_screen.badge, state);
     widget_stat_row_set_value(&s_screen.mode,
                               mode != NULL && mode->title != NULL ? mode->title : "--",
                               HMI_COLOR_BLUE);
@@ -268,8 +270,9 @@ void screen_confirm_start_update(const hmi_state_t *state)
         }
     }
 
-    widget_stat_row_set_value(&s_screen.homing, homing_text(state->homing_state),
-                              state->homing_state == HMI_HOMING_OK ? HMI_COLOR_GREEN : HMI_COLOR_AMBER);
+    widget_stat_row_set_value(&s_screen.homing, homing_text(state),
+                              state->machine_state_known && state->machine_state == HMI_MACHINE_READY ?
+                              HMI_COLOR_GREEN : HMI_COLOR_AMBER);
     widget_stat_row_set_value(&s_screen.safety, state->safety_ok ? "OK" : "FAULT",
                               state->safety_ok ? HMI_COLOR_GREEN : HMI_COLOR_RED);
     widget_stat_row_set_value(&s_screen.validation, job_text(state->job_state),

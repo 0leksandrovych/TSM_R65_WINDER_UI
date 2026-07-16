@@ -58,6 +58,16 @@ static bool post_state_update(const hmi_state_t *state)
     return hmi_event_queue_post(&event);
 }
 
+static bool post_connection_state(hmi_connection_state_t connection)
+{
+    hmi_internal_event_t event = {
+        .type = HMI_INTERNAL_EVENT_CONNECTION_STATE_CHANGED,
+        .data.connection = connection,
+    };
+
+    return hmi_event_queue_post(&event);
+}
+
 static void on_uart_decoded_response(
     const hmi_controller_link_decoded_t *decoded,
     void *user_ctx)
@@ -72,6 +82,8 @@ static void on_uart_decoded_response(
 static void on_uart_error(int error_code, void *user_ctx)
 {
     (void)user_ctx;
+
+    (void)post_connection_state(HMI_CONNECTION_LOST);
 
     if (s_uart_error_callback != NULL) {
         s_uart_error_callback(error_code, s_uart_user_ctx);
@@ -129,23 +141,17 @@ static void handle_state_snapshot(
         state = *current;
     }
 
-    if (snapshot->machine_state_present &&
-        !hmi_link_state_mapper_machine_state(
-            snapshot->machine_state,
-            &state.machine_state)) {
-        ESP_LOGW(
-            TAG,
-            "Ignoring unsupported link machine state: %d",
-            (int)snapshot->machine_state);
-    }
-    if (snapshot->homing_state_present &&
-        !hmi_link_state_mapper_homing_state(
-            snapshot->homing_state,
-            &state.homing_state)) {
-        ESP_LOGW(
-            TAG,
-            "Ignoring unsupported link homing state: %d",
-            (int)snapshot->homing_state);
+    if (snapshot->machine_state_present) {
+        if (hmi_link_state_mapper_machine_state(
+                snapshot->machine_state,
+                &state.machine_state)) {
+            state.machine_state_known = true;
+        } else {
+            ESP_LOGW(
+                TAG,
+                "Ignoring unsupported link machine state: %d",
+                (int)snapshot->machine_state);
+        }
     }
     if (snapshot->job_master_speed_present) {
         state.master_speed_rps = (float)snapshot->job_master_speed;
@@ -162,12 +168,16 @@ static void handle_state_snapshot(
     if (snapshot->job_right_edge_shift_present) {
         state.right_edge_offset_mm = (float)snapshot->job_right_edge_shift;
     }
+    if (snapshot->travel_range_mm_present) {
+        state.travel_range_mm = snapshot->travel_range_mm;
+        state.travel_range_known = true;
+    }
 
     /* job_state, progress, wound length, override, error, and event are not
      * available from the current controller telemetry contract. */
 
     (void)post_state_update(&state);
-    hmi_model_set_connection_state(HMI_CONNECTION_CONNECTED);
+    (void)post_connection_state(HMI_CONNECTION_CONNECTED);
 }
 
 bool hmi_controller_rx_handler_prepare_uart_config(

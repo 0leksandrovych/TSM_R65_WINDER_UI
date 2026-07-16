@@ -32,15 +32,39 @@ typedef enum {
 
 static home_screen_t s_home;
 
+static bool machine_is_homing(hmi_machine_state_t state)
+{
+    switch (state) {
+    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
+    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
+    case HMI_MACHINE_HOMING_COMPLETING:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static const char *machine_big_text(hmi_machine_state_t state)
 {
     switch (state) {
-    case HMI_MACHINE_BOOTING:
-        return "BOOTING";
     case HMI_MACHINE_HOMING_REQUIRED:
         return "HOMING REQUIRED";
+    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
+    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
+    case HMI_MACHINE_HOMING_COMPLETING:
+        return "HOMING";
     case HMI_MACHINE_READY:
         return "READY";
+    case HMI_MACHINE_ACCELERATING:
+        return "ACCELERATING";
     case HMI_MACHINE_RUNNING:
         return "RUNNING";
     case HMI_MACHINE_PAUSED:
@@ -59,15 +83,22 @@ static const char *machine_big_text(hmi_machine_state_t state)
 static const char *machine_explanation_text(const hmi_state_t *state)
 {
     switch (state->machine_state) {
-    case HMI_MACHINE_BOOTING:
-        return "HMI runtime is starting. Waiting for the application state.";
     case HMI_MACHINE_HOMING_REQUIRED:
         return "Machine position is unknown. Homing is required before automatic winding.";
+    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
+    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
+    case HMI_MACHINE_HOMING_COMPLETING:
+        return "The controller is executing the homing sequence.";
     case HMI_MACHINE_READY:
         if (state->job_state == HMI_JOB_VALID) {
             return "Machine is homed. A valid winding job is ready to start.";
         }
         return "Machine is homed. Configure a winding job to start.";
+    case HMI_MACHINE_ACCELERATING:
     case HMI_MACHINE_RUNNING:
     case HMI_MACHINE_PAUSED:
         return "A winding job is in progress.";
@@ -82,35 +113,40 @@ static const char *machine_explanation_text(const hmi_state_t *state)
     }
 }
 
-static const char *homing_text(hmi_homing_state_t state)
+static const char *homing_text(const hmi_state_t *state)
 {
-    switch (state) {
-    case HMI_HOMING_REQUIRED:
-        return "Required";
-    case HMI_HOMING_IN_PROGRESS:
-        return "In progress";
-    case HMI_HOMING_OK:
-        return "OK";
-    case HMI_HOMING_FAILED:
-        return "Failed";
-    default:
+    if (state == NULL || !state->machine_state_known) {
         return "Unknown";
     }
+    if (state->machine_state == HMI_MACHINE_HOMING_REQUIRED) {
+        return "Required";
+    }
+    if (machine_is_homing(state->machine_state)) {
+        return "In progress";
+    }
+    if (state->machine_state == HMI_MACHINE_READY ||
+        state->machine_state == HMI_MACHINE_ACCELERATING ||
+        state->machine_state == HMI_MACHINE_RUNNING ||
+        state->machine_state == HMI_MACHINE_PAUSED ||
+        state->machine_state == HMI_MACHINE_STOPPING ||
+        state->machine_state == HMI_MACHINE_FINISHED) {
+        return "OK";
+    }
+    return "Unknown";
 }
 
-static hmi_color_role_t homing_color(hmi_homing_state_t state)
+static hmi_color_role_t homing_color(const hmi_state_t *state)
 {
-    switch (state) {
-    case HMI_HOMING_OK:
+    const char *text = homing_text(state);
+    if (text[0] == 'O') {
         return HMI_COLOR_GREEN;
-    case HMI_HOMING_IN_PROGRESS:
-    case HMI_HOMING_REQUIRED:
-        return HMI_COLOR_AMBER;
-    case HMI_HOMING_FAILED:
-        return HMI_COLOR_RED;
-    default:
-        return HMI_COLOR_DIM;
     }
+    if (state != NULL && state->machine_state_known &&
+        (state->machine_state == HMI_MACHINE_HOMING_REQUIRED ||
+         machine_is_homing(state->machine_state))) {
+        return HMI_COLOR_AMBER;
+    }
+    return HMI_COLOR_DIM;
 }
 
 static const char *job_text(hmi_job_state_t state)
@@ -143,13 +179,15 @@ static hmi_color_role_t job_color(hmi_job_state_t state)
 
 static const char *primary_text_for_state(const hmi_state_t *state)
 {
-    if (state->machine_state == HMI_MACHINE_HOMING_REQUIRED) {
+    if (state->machine_state == HMI_MACHINE_HOMING_REQUIRED ||
+        machine_is_homing(state->machine_state)) {
         return "OPEN HOMING";
     }
     if (state->machine_state == HMI_MACHINE_READY && state->job_state == HMI_JOB_VALID) {
         return "CONFIRM START";
     }
-    if (state->machine_state == HMI_MACHINE_RUNNING ||
+    if (state->machine_state == HMI_MACHINE_ACCELERATING ||
+        state->machine_state == HMI_MACHINE_RUNNING ||
         state->machine_state == HMI_MACHINE_PAUSED ||
         state->machine_state == HMI_MACHINE_STOPPING) {
         return "OPEN RUN SCREEN";
@@ -164,13 +202,20 @@ static hmi_color_role_t machine_color_for_state(hmi_machine_state_t state)
 {
     switch (state) {
     case HMI_MACHINE_READY:
+    case HMI_MACHINE_ACCELERATING:
     case HMI_MACHINE_RUNNING:
     case HMI_MACHINE_FINISHED:
         return HMI_COLOR_GREEN;
     case HMI_MACHINE_HOMING_REQUIRED:
+    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
+    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
+    case HMI_MACHINE_HOMING_COMPLETING:
     case HMI_MACHINE_PAUSED:
     case HMI_MACHINE_STOPPING:
-    case HMI_MACHINE_BOOTING:
         return HMI_COLOR_AMBER;
     case HMI_MACHINE_ALARM:
         return HMI_COLOR_RED;
@@ -345,12 +390,15 @@ void screen_home_update(const hmi_state_t *state)
 
     widget_topbar_update(&s_home.topbar, state);
 
-    lv_label_set_text(s_home.status_label, machine_big_text(state->machine_state));
+    lv_label_set_text(s_home.status_label,
+                      state->machine_state_known ? machine_big_text(state->machine_state) : "CONNECTING");
     lv_obj_set_style_text_color(s_home.status_label, hmi_color_for_role(machine_color_for_state(state->machine_state)), 0);
-    lv_label_set_text(s_home.explanation_label, machine_explanation_text(state));
+    lv_label_set_text(s_home.explanation_label,
+                      state->machine_state_known ? machine_explanation_text(state) :
+                      "Waiting for the first valid controller state snapshot.");
 
     widget_stat_row_set_value(&s_home.mode_row, state->selected_mode != NULL ? state->selected_mode : "None", HMI_COLOR_BLUE);
-    widget_stat_row_set_value(&s_home.homing_row, homing_text(state->homing_state), homing_color(state->homing_state));
+    widget_stat_row_set_value(&s_home.homing_row, homing_text(state), homing_color(state));
     widget_stat_row_set_value(&s_home.job_row, job_text(state->job_state), job_color(state->job_state));
 
     snprintf(value_buf, sizeof(value_buf), "%.1f m", (double)state->unwound_length_m);

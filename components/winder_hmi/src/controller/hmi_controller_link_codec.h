@@ -36,8 +36,8 @@ typedef struct {
     bool machine_state_present;
     link_machine_state_t machine_state;
 
-    bool homing_state_present;
-    link_homing_state_t homing_state;
+    bool travel_range_mm_present;
+    double travel_range_mm;
 
     bool job_master_speed_present;
     double job_master_speed;

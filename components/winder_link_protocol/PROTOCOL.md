@@ -115,6 +115,21 @@ original_seq
 original_type
 ```
 
+`COMMAND_ACCEPTED` only confirms that the controller accepted the command for
+processing. It does not report operation completion and must not cause the HMI
+to synthesize a machine-state transition. Machine state changes come only from
+a later `STATE_SNAPSHOT`.
+
+The following commands have an empty payload:
+
+```text
+WINDER_LINK_MSG_START_HOMING
+WINDER_LINK_MSG_ABORT_HOMING
+WINDER_LINK_MSG_PAUSE_JOB
+WINDER_LINK_MSG_RESUME_JOB
+WINDER_LINK_MSG_STOP_JOB
+```
+
 ## 7. ACK / REJECT Payload Contract
 
 Planned payload for `WINDER_LINK_MSG_COMMAND_ACCEPTED`:
@@ -175,31 +190,38 @@ Implemented field IDs:
 4  LINK_FIELD_JOB_TARGET_LENGTH     float,     scale x1000 -> mm
 5  LINK_FIELD_JOB_SHIFT_EVERY       uint,      scale x1    -> layers
 6  LINK_FIELD_JOB_RIGHT_EDGE_SHIFT  float,     scale x100  -> centi-mm
-7  LINK_FIELD_HOMING_STATE          link_homing_state_t, scale x1
+7  retired legacy homing sub-state field (ignored by the new HMI)
+8  LINK_FIELD_TRAVEL_RANGE_MM       double,    scale x100  -> centi-mm
 ```
 
 `LINK_FIELD_MACHINE_STATE` carries a `link_machine_state_t` value. It must
-not carry a generated controller runtime state ID. `LINK_FIELD_HOMING_STATE`
-carries a `link_homing_state_t` value.
+not carry a generated controller runtime state ID. Homing progress is represented
+only by detailed `link_machine_state_t` values. Unknown field IDs, including the
+retired field ID 7, are ignored without rejecting the rest of the snapshot.
 
-The numeric values of both enums are a stable part of the wire contract:
+`LINK_FIELD_TRAVEL_RANGE_MM` carries an `int32` wire value scaled by 100. The
+HMI decodes it as `scaled_value / 100.0`; zero is a present value and is distinct
+from an omitted field.
+
+The numeric values of the machine-state enum are a stable part of the wire contract:
 
 ```text
 link_machine_state_t
-0  LINK_MACHINE_STATE_BOOTING
-1  LINK_MACHINE_STATE_HOMING_REQUIRED
-2  LINK_MACHINE_STATE_HOMING
-3  LINK_MACHINE_STATE_READY
-4  LINK_MACHINE_STATE_RUNNING
-5  LINK_MACHINE_STATE_STOPPING
-6  LINK_MACHINE_STATE_FINISHED
-7  LINK_MACHINE_STATE_ALARM
-
-link_homing_state_t
-0  LINK_HOMING_STATE_REQUIRED
-1  LINK_HOMING_STATE_IN_PROGRESS
-2  LINK_HOMING_STATE_COMPLETE
-3  LINK_HOMING_STATE_FAILED
+0   LINK_MACHINE_STATE_HOMING_REQUIRED
+1   LINK_MACHINE_STATE_HOMING_SEARCHING_RIGHT_REFERENCE
+2   LINK_MACHINE_STATE_HOMING_BACKING_OFF_RIGHT_REFERENCE
+3   LINK_MACHINE_STATE_HOMING_SEARCHING_LEFT_REFERENCE
+4   LINK_MACHINE_STATE_HOMING_BACKING_OFF_LEFT_REFERENCE
+5   LINK_MACHINE_STATE_HOMING_MEASURING_TRAVEL
+6   LINK_MACHINE_STATE_HOMING_APPLYING_OFFSET
+7   LINK_MACHINE_STATE_HOMING_COMPLETING
+8   LINK_MACHINE_STATE_READY
+9   LINK_MACHINE_STATE_ACCELERATING
+10  LINK_MACHINE_STATE_RUNNING
+11  LINK_MACHINE_STATE_PAUSED
+12  LINK_MACHINE_STATE_STOPPING
+13  LINK_MACHINE_STATE_FINISHED
+14  LINK_MACHINE_STATE_ALARM
 ```
 
 These values must not be renumbered or coupled to generated state-machine IDs.

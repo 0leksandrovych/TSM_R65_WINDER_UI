@@ -66,19 +66,34 @@ static void start_event_cb(lv_event_t *event)
     }
 }
 
-static const char *homing_text(hmi_homing_state_t state)
+static bool machine_is_homing(hmi_machine_state_t state)
 {
     switch (state) {
-    case HMI_HOMING_OK:
-        return "OK";
-    case HMI_HOMING_IN_PROGRESS:
-        return "IN PROGRESS";
-    case HMI_HOMING_FAILED:
-        return "FAILED";
-    case HMI_HOMING_REQUIRED:
+    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
+    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
+    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
+    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
+    case HMI_MACHINE_HOMING_COMPLETING:
+        return true;
     default:
+        return false;
+    }
+}
+
+static const char *homing_text(const hmi_state_t *state)
+{
+    if (state == NULL || !state->machine_state_known) {
+        return "UNKNOWN";
+    }
+    if (state->machine_state == HMI_MACHINE_HOMING_REQUIRED) {
         return "REQUIRED";
     }
+    if (machine_is_homing(state->machine_state)) {
+        return "IN PROGRESS";
+    }
+    return state->machine_state == HMI_MACHINE_ALARM ? "UNKNOWN" : "OK";
 }
 
 static const char *job_text(hmi_job_state_t state)
@@ -94,15 +109,15 @@ static const char *job_text(hmi_job_state_t state)
     }
 }
 
-static hmi_color_role_t homing_color(hmi_homing_state_t state)
+static hmi_color_role_t homing_color(const hmi_state_t *state)
 {
-    if (state == HMI_HOMING_OK) {
+    if (state != NULL && state->machine_state_known &&
+        state->machine_state != HMI_MACHINE_HOMING_REQUIRED &&
+        !machine_is_homing(state->machine_state) &&
+        state->machine_state != HMI_MACHINE_ALARM) {
         return HMI_COLOR_GREEN;
     }
-    if (state == HMI_HOMING_FAILED) {
-        return HMI_COLOR_RED;
-    }
-    return HMI_COLOR_AMBER;
+    return state != NULL && state->machine_state_known ? HMI_COLOR_AMBER : HMI_COLOR_DIM;
 }
 
 static hmi_color_role_t job_color(hmi_job_state_t state)
@@ -445,7 +460,7 @@ void screen_conical_setup_update(const hmi_state_t *state)
         hmi_capability_model_get_mode_by_id(hmi_job_draft_model_get_mode());
     bool validate_pending = hmi_pending_command_get() == HMI_PENDING_VALIDATE_JOB;
 
-    widget_status_badge_update(&s_screen.badge, state->machine_state);
+    widget_status_badge_update(&s_screen.badge, state);
 
     for (size_t i = 0; i < sizeof(s_screen.fields) / sizeof(s_screen.fields[0]); i++) {
         if (s_screen.fields[i].descriptor != NULL && s_screen.fields[i].value_label != NULL) {
@@ -458,7 +473,7 @@ void screen_conical_setup_update(const hmi_state_t *state)
     widget_stat_row_set_value(&s_screen.mode,
                               mode != NULL && mode->title != NULL ? mode->title : "--",
                               HMI_COLOR_BLUE);
-    widget_stat_row_set_value(&s_screen.homing, homing_text(state->homing_state), homing_color(state->homing_state));
+    widget_stat_row_set_value(&s_screen.homing, homing_text(state), homing_color(state));
     widget_stat_row_set_value(&s_screen.job, job_text(shown_job_state), job_color(shown_job_state));
 
     if (validation->estimated_layers > 0) {

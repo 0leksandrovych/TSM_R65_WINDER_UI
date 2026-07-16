@@ -51,7 +51,7 @@ void widget_topbar_update(hmi_topbar_t *topbar, const hmi_state_t *state)
         return;
     }
 
-    widget_status_badge_update(&topbar->badge, state->machine_state);
+    widget_status_badge_update(&topbar->badge, state);
     lv_label_set_text(topbar->system_ok_label, state->safety_ok ? "SYSTEM OK" : "SYSTEM FAULT");
     lv_obj_set_style_text_color(
         topbar->system_ok_label,

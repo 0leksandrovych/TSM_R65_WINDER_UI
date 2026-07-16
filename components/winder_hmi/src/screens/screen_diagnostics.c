@@ -169,11 +169,12 @@ void screen_diagnostics_update(const hmi_state_t *state)
     }
 
     char value[40];
-    bool locked = state->machine_state == HMI_MACHINE_RUNNING ||
+    bool locked = state->machine_state == HMI_MACHINE_ACCELERATING ||
+                  state->machine_state == HMI_MACHINE_RUNNING ||
                   state->machine_state == HMI_MACHINE_PAUSED ||
                   state->machine_state == HMI_MACHINE_STOPPING;
 
-    widget_status_badge_update(&s_screen.badge, state->machine_state);
+    widget_status_badge_update(&s_screen.badge, state);
     lv_label_set_text(s_screen.banner, locked ? "READ ONLY - machine is running" : "Diagnostic values are read-only mock/state data.");
     lv_obj_set_style_text_color(s_screen.banner, locked ? hmi_palette_get()->amber : hmi_palette_get()->text_dim, 0);
     lv_obj_set_style_bg_opa(s_screen.banner, locked ? LV_OPA_COVER : LV_OPA_TRANSP, 0);

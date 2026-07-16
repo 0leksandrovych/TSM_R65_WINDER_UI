@@ -75,27 +75,7 @@ void hmi_coordinator_on_command_accepted(hmi_command_t command)
     }
 
     hmi_pending_command_clear();
-
-    switch (command) {
-    case HMI_CMD_ABORT_HOMING:
-    case HMI_CMD_STOP_JOB:
-        hmi_navigation_home();
-        break;
-    case HMI_CMD_START_JOB:
-        hmi_navigation_show(HMI_SCREEN_RUN);
-        break;
-    case HMI_CMD_START_HOMING:
-    case HMI_CMD_VALIDATE_JOB:
-    case HMI_CMD_PAUSE_JOB:
-    case HMI_CMD_RESUME_JOB:
-    case HMI_CMD_RESET_UNWOUND_COUNTER:
-    case HMI_CMD_RESET_ALARM:
-    case HMI_CMD_SET_SPEED_OVERRIDE:
-    case HMI_CMD_APPLY_EDGE_TRIM:
-    default:
-        hmi_navigation_update(hmi_model_get_state());
-        break;
-    }
+    hmi_navigation_update(hmi_model_get_state());
 }
 
 void hmi_coordinator_on_command_rejected(const hmi_command_rejected_t *rejected)

@@ -32,26 +32,27 @@ typedef enum {
     LINK_FIELD_JOB_TARGET_LENGTH    = 4,  /* float, scale x1000 -> mm        */
     LINK_FIELD_JOB_SHIFT_EVERY      = 5,  /* uint,  scale x1    -> layers    */
     LINK_FIELD_JOB_RIGHT_EDGE_SHIFT = 6,  /* float, scale x100  -> centi-mm  */
-    LINK_FIELD_HOMING_STATE         = 7,  /* link_homing_state_t, scale x1   */
+    /* ID 7 was the legacy homing sub-state field and remains retired. */
+    LINK_FIELD_TRAVEL_RANGE_MM      = 8,  /* double, scale x100 -> centi-mm  */
 } link_field_id_t;
 
 typedef enum {
-    LINK_MACHINE_STATE_BOOTING         = 0,
-    LINK_MACHINE_STATE_HOMING_REQUIRED = 1,
-    LINK_MACHINE_STATE_HOMING          = 2,
-    LINK_MACHINE_STATE_READY           = 3,
-    LINK_MACHINE_STATE_RUNNING         = 4,
-    LINK_MACHINE_STATE_STOPPING        = 5,
-    LINK_MACHINE_STATE_FINISHED        = 6,
-    LINK_MACHINE_STATE_ALARM           = 7,
+    LINK_MACHINE_STATE_HOMING_REQUIRED                  = 0,
+    LINK_MACHINE_STATE_HOMING_SEARCHING_RIGHT_REFERENCE = 1,
+    LINK_MACHINE_STATE_HOMING_BACKING_OFF_RIGHT_REFERENCE = 2,
+    LINK_MACHINE_STATE_HOMING_SEARCHING_LEFT_REFERENCE  = 3,
+    LINK_MACHINE_STATE_HOMING_BACKING_OFF_LEFT_REFERENCE = 4,
+    LINK_MACHINE_STATE_HOMING_MEASURING_TRAVEL          = 5,
+    LINK_MACHINE_STATE_HOMING_APPLYING_OFFSET           = 6,
+    LINK_MACHINE_STATE_HOMING_COMPLETING                = 7,
+    LINK_MACHINE_STATE_READY                             = 8,
+    LINK_MACHINE_STATE_ACCELERATING                      = 9,
+    LINK_MACHINE_STATE_RUNNING                           = 10,
+    LINK_MACHINE_STATE_PAUSED                            = 11,
+    LINK_MACHINE_STATE_STOPPING                          = 12,
+    LINK_MACHINE_STATE_FINISHED                          = 13,
+    LINK_MACHINE_STATE_ALARM                             = 14,
 } link_machine_state_t;
-
-typedef enum {
-    LINK_HOMING_STATE_REQUIRED    = 0,
-    LINK_HOMING_STATE_IN_PROGRESS = 1,
-    LINK_HOMING_STATE_COMPLETE    = 2,
-    LINK_HOMING_STATE_FAILED      = 3,
-} link_homing_state_t;
 
 typedef enum {
     LINK_COMMAND_REJECT_NONE                 = 0,
