@@ -277,7 +277,7 @@ void screen_homing_update(const hmi_state_t *state)
         widget_stat_row_set_value(&s_screen.travel_row, "Unknown", HMI_COLOR_DIM);
     }
 
-    set_button_enabled(s_screen.start_button, (required || complete) && !start_pending && !abort_pending, HMI_COLOR_BLUE);
+    set_button_enabled(s_screen.start_button, required && !start_pending && !abort_pending, HMI_COLOR_BLUE);
     set_button_enabled(s_screen.abort_button, running && !start_pending && !abort_pending, HMI_COLOR_RED);
     if (running) {
         lv_obj_add_flag(s_screen.start_button, LV_OBJ_FLAG_HIDDEN);

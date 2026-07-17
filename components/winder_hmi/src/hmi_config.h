@@ -11,7 +11,7 @@
 
 /* Schedules a current-state request from the HMI context. UART byte handling
  * remains task/event-driven and is not polled by the UI tick. */
-#define HMI_TELEMETRY_POLL_INTERVAL_MS  1000U
+#define HMI_TELEMETRY_POLL_INTERVAL_MS  200U
 
 /* Internal event queue capacity.
  * Fixed static allocation via xQueueCreateStatic — never resized at runtime. */
