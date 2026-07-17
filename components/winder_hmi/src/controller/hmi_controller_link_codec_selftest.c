@@ -147,29 +147,34 @@ static bool test_encode_start_job_keyed_payload(void)
     message.data.job.mode_id = HMI_JOB_MODE_CONICAL;
     message.data.job.param_count = 5U;
     message.data.job.params[0] = (hmi_controller_param_value_t){
-        .param_id = 1U,
+        .wire_param_id = LINK_PARAM_JOB_MASTER_SPEED,
+        .wire_scale = 100.0,
         .type = HMI_PARAM_TYPE_FLOAT,
         .value.f32 = 2.50f,
     };
     message.data.job.params[1] = (hmi_controller_param_value_t){
-        .param_id = 2U,
+        .wire_param_id = LINK_PARAM_JOB_WINDING_PITCH,
+        .wire_scale = 100.0,
         .type = HMI_PARAM_TYPE_FLOAT,
-        .value.f32 = 0.80f,
+        .value.f32 = 1.25f,
     };
     message.data.job.params[2] = (hmi_controller_param_value_t){
-        .param_id = 3U,
-        .type = HMI_PARAM_TYPE_FLOAT,
-        .value.f32 = 120.0f,
+        .wire_param_id = LINK_PARAM_JOB_TARGET_LENGTH,
+        .wire_scale = 1.0,
+        .type = HMI_PARAM_TYPE_UINT32,
+        .value.u32 = 500U,
     };
     message.data.job.params[3] = (hmi_controller_param_value_t){
-        .param_id = 4U,
+        .wire_param_id = LINK_PARAM_JOB_SHIFT_EVERY,
+        .wire_scale = 1.0,
         .type = HMI_PARAM_TYPE_UINT32,
-        .value.u32 = 3U,
+        .value.u32 = 10U,
     };
     message.data.job.params[4] = (hmi_controller_param_value_t){
-        .param_id = 5U,
+        .wire_param_id = LINK_PARAM_JOB_RIGHT_EDGE_SHIFT,
+        .wire_scale = 100.0,
         .type = HMI_PARAM_TYPE_FLOAT,
-        .value.f32 = 1.00f,
+        .value.f32 = 0.75f,
     };
 
     hmi_controller_link_encoded_t encoded = {0};
@@ -188,7 +193,7 @@ static bool test_encode_start_job_keyed_payload(void)
     }
 
     const uint16_t expected_ids[] = {1U, 2U, 3U, 4U, 5U};
-    const int32_t expected_values[] = {250, 80, 120000, 3, 100};
+    const int32_t expected_values[] = {250, 125, 500, 10, 75};
     for (size_t i = 0; i < param_count; i++) {
         uint16_t param_id = 0U;
         int32_t scaled_value = 0;
@@ -206,14 +211,15 @@ static bool test_encode_start_job_keyed_payload(void)
            winder_link_payload_reader_done(&reader);
 }
 
-static bool test_encode_start_job_unknown_param_rejected(void)
+static bool test_encode_start_job_invalid_wire_mapping_rejected(void)
 {
     hmi_controller_message_t message = {0};
     message.type = HMI_CONTROLLER_MSG_START_JOB;
     message.data.job.mode_id = HMI_JOB_MODE_CONICAL;
     message.data.job.param_count = 1U;
     message.data.job.params[0] = (hmi_controller_param_value_t){
-        .param_id = 99U,
+        .wire_param_id = 0U,
+        .wire_scale = 1.0,
         .type = HMI_PARAM_TYPE_FLOAT,
         .value.f32 = 1.0f,
     };
@@ -581,7 +587,7 @@ bool hmi_controller_link_codec_selftest(void)
            test_encode_get_telemetry_frame() &&
            test_encode_set_speed_override_frame_loopback() &&
            test_encode_start_job_keyed_payload() &&
-           test_encode_start_job_unknown_param_rejected() &&
+           test_encode_start_job_invalid_wire_mapping_rejected() &&
            test_decode_command_accepted_frame_loopback() &&
            test_decode_command_rejected_frame_loopback() &&
            test_machine_state_numeric_contract() &&

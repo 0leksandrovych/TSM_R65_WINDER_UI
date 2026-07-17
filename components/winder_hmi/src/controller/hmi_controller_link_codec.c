@@ -1,24 +1,11 @@
 #include "hmi_controller_link_codec.h"
 
 #include <limits.h>
+#include <math.h>
 #include <stddef.h>
 
 #include "winder_link_contract.h"
 #include "winder_link_payload.h"
-
-typedef enum {
-    HMI_CODEC_DEMO_PARAM_MASTER_SPEED = 1,
-    HMI_CODEC_DEMO_PARAM_WINDING_PITCH,
-    HMI_CODEC_DEMO_PARAM_TARGET_LENGTH,
-    HMI_CODEC_DEMO_PARAM_SHIFT_EVERY,
-    HMI_CODEC_DEMO_PARAM_RIGHT_EDGE_SHIFT,
-} hmi_codec_demo_param_id_t;
-
-typedef struct {
-    uint16_t local_param_id;
-    link_param_id_t wire_param_id;
-    double scale;
-} job_param_binding_t;
 
 typedef enum {
     SNAPSHOT_VALUE_MACHINE_STATE = 0,
@@ -32,14 +19,6 @@ typedef struct {
     size_t present_offset;
     snapshot_value_type_t value_type;
 } snapshot_field_binding_t;
-
-static const job_param_binding_t job_param_bindings[] = {
-    { HMI_CODEC_DEMO_PARAM_MASTER_SPEED,     LINK_PARAM_JOB_MASTER_SPEED,     100.0 },
-    { HMI_CODEC_DEMO_PARAM_WINDING_PITCH,    LINK_PARAM_JOB_WINDING_PITCH,    100.0 },
-    { HMI_CODEC_DEMO_PARAM_TARGET_LENGTH,    LINK_PARAM_JOB_TARGET_LENGTH,   1000.0 },
-    { HMI_CODEC_DEMO_PARAM_SHIFT_EVERY,      LINK_PARAM_JOB_SHIFT_EVERY,        1.0 },
-    { HMI_CODEC_DEMO_PARAM_RIGHT_EDGE_SHIFT, LINK_PARAM_JOB_RIGHT_EDGE_SHIFT,  100.0 },
-};
 
 static const snapshot_field_binding_t snapshot_field_bindings[] = {
     {
@@ -126,17 +105,6 @@ static bool encode_speed_override(
     return true;
 }
 
-static const job_param_binding_t *find_job_param_binding(uint16_t local_param_id)
-{
-    for (size_t i = 0; i < sizeof(job_param_bindings) / sizeof(job_param_bindings[0]); i++) {
-        if (job_param_bindings[i].local_param_id == local_param_id) {
-            return &job_param_bindings[i];
-        }
-    }
-
-    return NULL;
-}
-
 static bool param_value_as_double(hmi_param_type_t type, hmi_param_value_t value, double *out_value)
 {
     if (out_value == NULL) {
@@ -197,19 +165,20 @@ static bool encode_start_job(
 
     for (size_t i = 0; i < job->param_count; i++) {
         const hmi_controller_param_value_t *param = &job->params[i];
-        const job_param_binding_t *binding = find_job_param_binding(param->param_id);
-        if (binding == NULL) {
+        if (param->wire_param_id == 0U ||
+            !isfinite(param->wire_scale) ||
+            !(param->wire_scale > 0.0)) {
             return false;
         }
 
         double value = 0.0;
         int32_t scaled_value = 0;
         if (!param_value_as_double(param->type, param->value, &value) ||
-            !scale_to_i32(value, binding->scale, &scaled_value)) {
+            !scale_to_i32(value, param->wire_scale, &scaled_value)) {
             return false;
         }
 
-        if (!winder_link_payload_write_u16_le(&writer, (uint16_t)binding->wire_param_id) ||
+        if (!winder_link_payload_write_u16_le(&writer, param->wire_param_id) ||
             !winder_link_payload_write_i32_le(&writer, scaled_value)) {
             return false;
         }

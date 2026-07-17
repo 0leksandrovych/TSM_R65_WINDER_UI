@@ -20,7 +20,7 @@
 typedef enum {
     LINK_PARAM_JOB_MASTER_SPEED     = 1,  /* float, scale x100  -> centi-rps */
     LINK_PARAM_JOB_WINDING_PITCH    = 2,  /* float, scale x100  -> centi-mm  */
-    LINK_PARAM_JOB_TARGET_LENGTH    = 3,  /* float, scale x1000 -> mm        */
+    LINK_PARAM_JOB_TARGET_LENGTH    = 3,  /* uint,  scale x1    -> meters    */
     LINK_PARAM_JOB_SHIFT_EVERY      = 4,  /* uint,  scale x1    -> layers    */
     LINK_PARAM_JOB_RIGHT_EDGE_SHIFT = 5,  /* float, scale x100  -> centi-mm  */
 } link_param_id_t;

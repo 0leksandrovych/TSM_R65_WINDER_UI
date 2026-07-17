@@ -19,12 +19,18 @@ typedef union {
 } hmi_param_value_t;
 
 typedef struct {
+    uint16_t param_id;
+    double scale;
+} hmi_param_wire_mapping_t;
+
+typedef struct {
     uint16_t id;
     const char *key;
     const char *label;
     const char *unit;
 
     hmi_param_type_t type;
+    hmi_param_wire_mapping_t wire;
 
     hmi_param_value_t default_value;
     hmi_param_value_t min_value;

@@ -116,8 +116,10 @@ static bool parse_input(float *value, uint32_t *u32_value)
 
     if (parsed < s_keypad.config.min_value || parsed > s_keypad.config.max_value) {
         char message[80];
-        snprintf(message, sizeof(message), "Range %.2f to %.2f %s.",
+        snprintf(message, sizeof(message), "Range %.*f to %.*f %s.",
+                 (int)s_keypad.config.decimals,
                  (double)s_keypad.config.min_value,
+                 (int)s_keypad.config.decimals,
                  (double)s_keypad.config.max_value,
                  s_keypad.config.unit != NULL ? s_keypad.config.unit : "");
         set_error(message);
@@ -270,8 +272,10 @@ void modal_numeric_keypad_open(lv_obj_t *parent, const modal_numeric_keypad_conf
     lv_obj_set_width(hint, LV_PCT(100));
     lv_obj_set_style_text_align(hint, LV_TEXT_ALIGN_CENTER, 0);
     char hint_text[96];
-    snprintf(hint_text, sizeof(hint_text), "Min %.2f   Max %.2f %s",
+    snprintf(hint_text, sizeof(hint_text), "Min %.*f   Max %.*f %s",
+             (int)config->decimals,
              (double)config->min_value,
+             (int)config->decimals,
              (double)config->max_value,
              config->unit != NULL ? config->unit : "");
     lv_label_set_text(hint, hint_text);

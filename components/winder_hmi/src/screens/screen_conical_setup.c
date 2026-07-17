@@ -9,7 +9,6 @@
 #include "hmi_model.h"
 #include "hmi_navigation.h"
 #include "hmi_param.h"
-#include "hmi_pending_command.h"
 #include "hmi_styles.h"
 #include "hmi_types.h"
 #include "modal_numeric_keypad.h"
@@ -34,9 +33,6 @@ typedef struct {
     hmi_stat_row_t time;
     hmi_stat_row_t offset;
     lv_obj_t *validation_label;
-    lv_obj_t *validate_button;
-    lv_obj_t *start_button;
-    lv_obj_t *start_label;
 } conical_setup_screen_t;
 
 static conical_setup_screen_t s_screen;
@@ -48,22 +44,10 @@ static void back_event_cb(lv_event_t *event)
     hmi_actions_open_jobs();
 }
 
-static void validate_event_cb(lv_event_t *event)
-{
-    (void)event;
-    hmi_actions_validate_job();
-}
-
 static void start_event_cb(lv_event_t *event)
 {
     (void)event;
-    const hmi_state_t *state = hmi_model_get_state();
-    const hmi_job_validation_t *validation = hmi_job_draft_model_get_validation();
-    if (state != NULL && validation->valid && state->job_state == HMI_JOB_VALID) {
-        hmi_actions_open_confirm_start();
-    } else {
-        hmi_actions_validate_job();
-    }
+    hmi_actions_open_confirm_start();
 }
 
 static bool machine_is_homing(hmi_machine_state_t state)
@@ -96,19 +80,6 @@ static const char *homing_text(const hmi_state_t *state)
     return state->machine_state == HMI_MACHINE_ALARM ? "UNKNOWN" : "OK";
 }
 
-static const char *job_text(hmi_job_state_t state)
-{
-    switch (state) {
-    case HMI_JOB_VALID:
-        return "VALID";
-    case HMI_JOB_INVALID:
-        return "INVALID";
-    case HMI_JOB_NOT_CONFIGURED:
-    default:
-        return "NOT VALIDATED";
-    }
-}
-
 static hmi_color_role_t homing_color(const hmi_state_t *state)
 {
     if (state != NULL && state->machine_state_known &&
@@ -118,41 +89,6 @@ static hmi_color_role_t homing_color(const hmi_state_t *state)
         return HMI_COLOR_GREEN;
     }
     return state != NULL && state->machine_state_known ? HMI_COLOR_AMBER : HMI_COLOR_DIM;
-}
-
-static hmi_color_role_t job_color(hmi_job_state_t state)
-{
-    if (state == HMI_JOB_VALID) {
-        return HMI_COLOR_GREEN;
-    }
-    if (state == HMI_JOB_INVALID) {
-        return HMI_COLOR_RED;
-    }
-    return HMI_COLOR_AMBER;
-}
-
-static hmi_job_state_t effective_job_state(const hmi_state_t *state)
-{
-    const hmi_job_validation_t *validation = hmi_job_draft_model_get_validation();
-    if (validation == NULL || !validation->valid) {
-        return HMI_JOB_NOT_CONFIGURED;
-    }
-    return state != NULL ? state->job_state : HMI_JOB_NOT_CONFIGURED;
-}
-
-static void set_button_dimmed(lv_obj_t *button, bool dimmed)
-{
-    if (button == NULL) {
-        return;
-    }
-
-    if (dimmed) {
-        lv_obj_add_state(button, LV_STATE_DISABLED);
-        lv_obj_set_style_opa(button, LV_OPA_60, 0);
-    } else {
-        lv_obj_clear_state(button, LV_STATE_DISABLED);
-        lv_obj_set_style_opa(button, LV_OPA_COVER, 0);
-    }
 }
 
 static void apply_param_value(const hmi_param_descriptor_t *descriptor, hmi_param_value_t value)
@@ -423,7 +359,7 @@ void screen_conical_setup_create(lv_obj_t *root)
     lv_obj_t *right = create_panel(content, 378, "READINESS");
     widget_stat_row_create(right, &s_screen.mode, "Mode");
     widget_stat_row_create(right, &s_screen.homing, "Homing");
-    widget_stat_row_create(right, &s_screen.job, "Job");
+    widget_stat_row_create(right, &s_screen.job, "Job draft");
     widget_stat_row_create(right, &s_screen.layers, "Est layers");
     widget_stat_row_create(right, &s_screen.time, "Est time");
     widget_stat_row_create(right, &s_screen.offset, "Right shift");
@@ -443,9 +379,7 @@ void screen_conical_setup_create(lv_obj_t *root)
     lv_obj_clear_flag(buttons, LV_OBJ_FLAG_SCROLLABLE);
 
     create_bottom_button(buttons, "BACK", HMI_COLOR_DIM, back_event_cb);
-    s_screen.validate_button = create_bottom_button(buttons, "VALIDATE", HMI_COLOR_BLUE, validate_event_cb);
-    s_screen.start_button = create_bottom_button(buttons, "START", HMI_COLOR_GREEN, start_event_cb);
-    s_screen.start_label = lv_obj_get_child(s_screen.start_button, 0);
+    create_bottom_button(buttons, "REVIEW", HMI_COLOR_GREEN, start_event_cb);
 }
 
 void screen_conical_setup_update(const hmi_state_t *state)
@@ -458,7 +392,6 @@ void screen_conical_setup_update(const hmi_state_t *state)
     const hmi_job_validation_t *validation = hmi_job_draft_model_get_validation();
     const hmi_mode_capability_t *mode =
         hmi_capability_model_get_mode_by_id(hmi_job_draft_model_get_mode());
-    bool validate_pending = hmi_pending_command_get() == HMI_PENDING_VALIDATE_JOB;
 
     widget_status_badge_update(&s_screen.badge, state);
 
@@ -469,12 +402,13 @@ void screen_conical_setup_update(const hmi_state_t *state)
         }
     }
 
-    hmi_job_state_t shown_job_state = effective_job_state(state);
     widget_stat_row_set_value(&s_screen.mode,
                               mode != NULL && mode->title != NULL ? mode->title : "--",
                               HMI_COLOR_BLUE);
     widget_stat_row_set_value(&s_screen.homing, homing_text(state), homing_color(state));
-    widget_stat_row_set_value(&s_screen.job, job_text(shown_job_state), job_color(shown_job_state));
+    widget_stat_row_set_value(&s_screen.job,
+                              mode != NULL ? "CONFIGURED" : "NOT CONFIGURED",
+                              mode != NULL ? HMI_COLOR_GREEN : HMI_COLOR_AMBER);
 
     if (validation->estimated_layers > 0) {
         snprintf(text, sizeof(text), "%lu", (unsigned long)validation->estimated_layers);
@@ -498,17 +432,6 @@ void screen_conical_setup_update(const hmi_state_t *state)
     }
 
     lv_label_set_text(s_screen.validation_label,
-                      validate_pending ? hmi_pending_command_get_message() :
-                      (validation->message[0] != '\0' ? validation->message : "--"));
-    lv_obj_set_style_text_color(s_screen.validation_label,
-                                validation->valid && !validate_pending ? hmi_palette_get()->green : hmi_palette_get()->amber,
-                                0);
-
-    bool can_continue = validation->valid && state->job_state == HMI_JOB_VALID;
-    set_button_dimmed(s_screen.validate_button, validate_pending);
-    set_button_dimmed(s_screen.start_button, !can_continue || validate_pending);
-    if (s_screen.start_label != NULL) {
-        lv_label_set_text(s_screen.start_label, can_continue ? "START" : "VALIDATE");
-        lv_obj_center(s_screen.start_label);
-    }
+                      "Review parameters, then continue to start confirmation.");
+    lv_obj_set_style_text_color(s_screen.validation_label, hmi_palette_get()->text_dim, 0);
 }

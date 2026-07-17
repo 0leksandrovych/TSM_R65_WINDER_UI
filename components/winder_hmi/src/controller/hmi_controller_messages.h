@@ -45,7 +45,8 @@ typedef enum {
 } hmi_controller_event_type_t;
 
 typedef struct {
-    uint16_t param_id;
+    uint16_t wire_param_id;
+    double wire_scale;
     hmi_param_type_t type;
     hmi_param_value_t value;
 } hmi_controller_param_value_t;

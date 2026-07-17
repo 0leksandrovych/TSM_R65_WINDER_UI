@@ -1,5 +1,6 @@
 #include "hmi_controller_client.h"
 
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -254,9 +255,16 @@ static bool build_current_job_payload(hmi_controller_job_payload_t *out)
             return false;
         }
 
-        out->params[out->param_count].param_id = descriptor->id;
-        out->params[out->param_count].type     = descriptor->type;
-        out->params[out->param_count].value    = value;
+        if (descriptor->wire.param_id == 0U ||
+            !isfinite(descriptor->wire.scale) ||
+            !(descriptor->wire.scale > 0.0)) {
+            return false;
+        }
+
+        out->params[out->param_count].wire_param_id = descriptor->wire.param_id;
+        out->params[out->param_count].wire_scale    = descriptor->wire.scale;
+        out->params[out->param_count].type          = descriptor->type;
+        out->params[out->param_count].value         = value;
         out->param_count++;
     }
 

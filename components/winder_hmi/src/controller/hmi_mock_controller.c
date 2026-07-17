@@ -104,7 +104,7 @@ static bool payload_value_by_key(const hmi_controller_job_payload_t *job,
     }
 
     for (size_t i = 0; i < job->param_count; i++) {
-        if (job->params[i].param_id == descriptor->id &&
+        if (job->params[i].wire_param_id == descriptor->wire.param_id &&
             job->params[i].type == descriptor->type) {
             *out_value = job->params[i].value;
             *out_descriptor = descriptor;
@@ -166,7 +166,7 @@ static bool validate_job_payload(const hmi_controller_job_payload_t *job,
         bool found = false;
 
         for (size_t j = 0; j < job->param_count; j++) {
-            if (job->params[j].param_id == descriptor->id &&
+            if (job->params[j].wire_param_id == descriptor->wire.param_id &&
                 job->params[j].type == descriptor->type) {
                 value = job->params[j].value;
                 found = true;
@@ -393,8 +393,10 @@ static void execute_pending_operation(void)
         publish_state();
         break;
     }
-    case MOCK_OP_START_JOB:
-        if (!s_job_valid && s_state.job_state != HMI_JOB_VALID) {
+    case MOCK_OP_START_JOB: {
+        hmi_job_validation_t validation;
+        s_job_valid = validate_job_payload(&s_pending_message.data.job, &validation);
+        if (!s_job_valid) {
             (void)winder_hmi_post_command_rejected(HMI_CMD_START_JOB, "Job is not valid");
         } else if (s_state.machine_state != HMI_MACHINE_READY) {
             (void)winder_hmi_post_command_rejected(HMI_CMD_START_JOB, "Machine is not ready");
@@ -403,6 +405,7 @@ static void execute_pending_operation(void)
             start_run(&s_pending_message.data.job);
         }
         break;
+    }
     case MOCK_OP_START_HOMING:
         if (s_state.machine_state == HMI_MACHINE_RUNNING ||
             s_state.machine_state == HMI_MACHINE_PAUSED) {
