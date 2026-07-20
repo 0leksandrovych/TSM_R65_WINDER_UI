@@ -182,18 +182,34 @@ void hmi_actions_start_job(void)
 
 void hmi_actions_pause_job(void)
 {
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL ||
+        !state->machine_state_known ||
+        state->machine_state != HMI_MACHINE_RUNNING ||
+        hmi_pending_command_is_active() ||
+        !hmi_command_bus_emit(HMI_CMD_PAUSE_JOB, NULL)) {
+        return;
+    }
+
     hmi_pending_command_set(HMI_PENDING_PAUSE_JOB, "Pausing...",
                             hmi_now_ms(), HMI_PENDING_DEFAULT_TIMEOUT_MS);
-    hmi_navigation_update(hmi_model_get_state());
-    hmi_command_bus_emit(HMI_CMD_PAUSE_JOB, NULL);
+    hmi_navigation_update(state);
 }
 
 void hmi_actions_resume_job(void)
 {
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL ||
+        !state->machine_state_known ||
+        state->machine_state != HMI_MACHINE_PAUSED ||
+        hmi_pending_command_is_active() ||
+        !hmi_command_bus_emit(HMI_CMD_RESUME_JOB, NULL)) {
+        return;
+    }
+
     hmi_pending_command_set(HMI_PENDING_RESUME_JOB, "Resuming...",
                             hmi_now_ms(), HMI_PENDING_DEFAULT_TIMEOUT_MS);
-    hmi_navigation_update(hmi_model_get_state());
-    hmi_command_bus_emit(HMI_CMD_RESUME_JOB, NULL);
+    hmi_navigation_update(state);
 }
 
 void hmi_actions_stop_job(void)

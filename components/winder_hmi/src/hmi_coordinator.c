@@ -10,6 +10,19 @@
 static char s_command_rejected_reason[HMI_TEXT_MESSAGE_MAX];
 static const char s_timeout_reason[] = "Controller response timeout";
 
+static bool machine_is_active_run_state(hmi_machine_state_t state)
+{
+    switch (state) {
+    case HMI_MACHINE_ACCELERATING:
+    case HMI_MACHINE_RUNNING:
+    case HMI_MACHINE_PAUSED:
+    case HMI_MACHINE_STOPPING:
+        return true;
+    default:
+        return false;
+    }
+}
+
 static hmi_pending_command_t expected_pending_for_command(hmi_command_t command)
 {
     switch (command) {
@@ -49,6 +62,23 @@ static void handle_alarm_interrupt(const hmi_state_t *state)
     }
 }
 
+static void handle_run_command_completion(const hmi_state_t *state)
+{
+    if (state == NULL ||
+        !state->machine_state_known ||
+        !hmi_pending_command_is_active()) {
+        return;
+    }
+
+    hmi_pending_command_t pending = hmi_pending_command_get();
+    if ((pending == HMI_PENDING_PAUSE_JOB &&
+         state->machine_state == HMI_MACHINE_PAUSED) ||
+        (pending == HMI_PENDING_RESUME_JOB &&
+         state->machine_state == HMI_MACHINE_RUNNING)) {
+        hmi_pending_command_clear();
+    }
+}
+
 void hmi_coordinator_init(void)
 {
     s_command_rejected_reason[0] = '\0';
@@ -60,9 +90,26 @@ void hmi_coordinator_on_state_update(const hmi_state_t *state)
         return;
     }
 
+    const hmi_state_t *previous_state = hmi_model_get_state();
+    bool was_active_run = previous_state != NULL &&
+                          previous_state->machine_state_known &&
+                          machine_is_active_run_state(previous_state->machine_state);
+
     hmi_model_set_state(state);
-    handle_alarm_interrupt(hmi_model_get_state());
-    hmi_navigation_update(hmi_model_get_state());
+    const hmi_state_t *current_state = hmi_model_get_state();
+    handle_run_command_completion(current_state);
+    handle_alarm_interrupt(current_state);
+
+    bool entered_active_run = current_state->machine_state_known &&
+                              machine_is_active_run_state(current_state->machine_state) &&
+                              !was_active_run;
+    if (entered_active_run &&
+        hmi_navigation_current() == HMI_SCREEN_CONFIRM_START) {
+        hmi_navigation_show(HMI_SCREEN_RUN);
+        return;
+    }
+
+    hmi_navigation_update(current_state);
 }
 
 void hmi_coordinator_on_command_accepted(hmi_command_t command)
@@ -74,7 +121,10 @@ void hmi_coordinator_on_command_accepted(hmi_command_t command)
         return;
     }
 
-    hmi_pending_command_clear();
+    if (expected != HMI_PENDING_PAUSE_JOB &&
+        expected != HMI_PENDING_RESUME_JOB) {
+        hmi_pending_command_clear();
+    }
     hmi_navigation_update(hmi_model_get_state());
 }
 
@@ -91,7 +141,12 @@ void hmi_coordinator_on_command_rejected(const hmi_command_rejected_t *rejected)
         rejected->reason[0] != '\0' ? rejected->reason : "Command rejected"
     );
 
-    hmi_pending_command_clear();
+    hmi_pending_command_t expected = expected_pending_for_command(rejected->command);
+    if (expected != HMI_PENDING_NONE &&
+        hmi_pending_command_is_active() &&
+        hmi_pending_command_get() == expected) {
+        hmi_pending_command_clear();
+    }
 
     hmi_state_t state = *hmi_model_get_state();
     state.last_error = s_command_rejected_reason;

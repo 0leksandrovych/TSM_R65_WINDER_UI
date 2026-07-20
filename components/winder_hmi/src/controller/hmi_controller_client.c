@@ -284,7 +284,7 @@ static const command_binding_t *find_command_binding(hmi_command_t command)
     return NULL;
 }
 
-static void on_command(hmi_command_t command,
+static bool on_command(hmi_command_t command,
                        const hmi_command_payload_t *payload,
                        void *user_ctx)
 {
@@ -292,13 +292,13 @@ static void on_command(hmi_command_t command,
 
     if (!hmi_controller_transport_is_available()) {
         (void)post_command_rejected(command, "Controller not connected");
-        return;
+        return false;
     }
 
     const command_binding_t *binding = find_command_binding(command);
     if (binding == NULL) {
         (void)post_command_rejected(command, "Command not supported");
-        return;
+        return false;
     }
 
     hmi_controller_message_t message = {0};
@@ -312,7 +312,7 @@ static void on_command(hmi_command_t command,
         hmi_controller_job_payload_t job = {0};
         if (!build_current_job_payload(&job)) {
             (void)post_command_rejected(command, "Failed to build job payload");
-            return;
+            return false;
         }
         ok = hmi_controller_message_init_job(
             &message,
@@ -345,19 +345,22 @@ static void on_command(hmi_command_t command,
 
     if (!ok) {
         (void)post_command_rejected(command, "Command not supported");
-        return;
+        return false;
     }
 
     uint16_t seq = allocate_seq();
     if (!remember_seq(seq, command, message.type)) {
         (void)post_command_rejected(command, "Controller command tracking full");
-        return;
+        return false;
     }
 
     if (!hmi_controller_transport_send(&message, seq)) {
         forget_seq(seq);
         (void)post_command_rejected(command, "Transport send failed");
+        return false;
     }
+
+    return true;
 }
 
 static bool uart_transport_send_adapter(

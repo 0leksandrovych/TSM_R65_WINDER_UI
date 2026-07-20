@@ -31,8 +31,10 @@ typedef struct {
     lv_obj_t *direction_label;
     lv_obj_t *position_label;
     lv_obj_t *right_edge_label;
+    lv_obj_t *feedback_label;
     lv_obj_t *pause_button;
     lv_obj_t *pause_label;
+    lv_obj_t *speed_button;
     lv_obj_t *stop_button;
     lv_obj_t *stop_label;
 } run_screen_t;
@@ -54,18 +56,21 @@ static void status_event_cb(lv_event_t *event)
 static void pause_event_cb(lv_event_t *event)
 {
     (void)event;
-    const hmi_state_t *state = hmi_model_get_state();
-    if (state != NULL && state->machine_state == HMI_MACHINE_PAUSED) {
-        hmi_actions_resume_job();
-    } else {
-        hmi_actions_pause_job();
-    }
-}
 
-static void speed_event_cb(lv_event_t *event)
-{
-    (void)event;
-    hmi_actions_placeholder_machine();
+    if (hmi_pending_command_is_active()) {
+        return;
+    }
+
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL || !state->machine_state_known) {
+        return;
+    }
+
+    if (state->machine_state == HMI_MACHINE_RUNNING) {
+        hmi_actions_pause_job();
+    } else if (state->machine_state == HMI_MACHINE_PAUSED) {
+        hmi_actions_resume_job();
+    }
 }
 
 static void stop_event_cb(lv_event_t *event)
@@ -105,7 +110,9 @@ static lv_obj_t *create_button(lv_obj_t *parent, const char *text, hmi_color_rol
     lv_obj_add_style(button, &styles->primary_button, 0);
     lv_obj_set_size(button, 176, 52);
     set_button_enabled_color(button, role);
-    lv_obj_add_event_cb(button, cb, LV_EVENT_CLICKED, NULL);
+    if (cb != NULL) {
+        lv_obj_add_event_cb(button, cb, LV_EVENT_CLICKED, NULL);
+    }
 
     lv_obj_t *label = lv_label_create(button);
     lv_label_set_text(label, text);
@@ -141,10 +148,13 @@ static void create_topbar(lv_obj_t *root)
     lv_obj_add_style(title, &styles->topbar_title, 0);
     lv_label_set_text(title, "CONICAL WINDING");
 
-    lv_obj_t *spacer = lv_obj_create(topbar);
-    lv_obj_remove_style_all(spacer);
-    lv_obj_set_flex_grow(spacer, 1);
-    lv_obj_set_size(spacer, 0, 1);
+    s_screen.feedback_label = lv_label_create(topbar);
+    lv_obj_add_style(s_screen.feedback_label, &styles->status_text, 0);
+    lv_label_set_long_mode(s_screen.feedback_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_flex_grow(s_screen.feedback_label, 1);
+    lv_obj_set_width(s_screen.feedback_label, 0);
+    lv_obj_set_style_text_align(s_screen.feedback_label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_text(s_screen.feedback_label, "");
 
     widget_status_badge_create(topbar, &s_screen.badge);
 
@@ -336,10 +346,13 @@ void screen_run_create(lv_obj_t *root)
 
     s_screen.pause_button = create_button(buttons, "PAUSE", HMI_COLOR_AMBER, pause_event_cb);
     s_screen.pause_label = lv_obj_get_child(s_screen.pause_button, 0);
-    create_button(buttons, "SPEED", HMI_COLOR_BLUE, speed_event_cb);
+    s_screen.speed_button = create_button(buttons, "SPEED", HMI_COLOR_BLUE, NULL);
     s_screen.stop_button = create_button(buttons, "STOP", HMI_COLOR_RED, stop_event_cb);
     s_screen.stop_label = lv_obj_get_child(s_screen.stop_button, 0);
     create_button(buttons, "HOME", HMI_COLOR_DIM, back_event_cb);
+
+    set_button_dimmed(s_screen.pause_button, true);
+    set_button_dimmed(s_screen.speed_button, true);
 }
 
 void screen_run_update(const hmi_state_t *state)
@@ -351,10 +364,25 @@ void screen_run_update(const hmi_state_t *state)
     char value[40];
     widget_status_badge_update(&s_screen.badge, state);
     hmi_pending_command_t pending = hmi_pending_command_get();
+    bool any_pending = hmi_pending_command_is_active();
     bool pause_pending = pending == HMI_PENDING_PAUSE_JOB;
     bool resume_pending = pending == HMI_PENDING_RESUME_JOB;
     bool stop_pending = pending == HMI_PENDING_STOP_JOB;
-    bool machine_stopping = state->machine_state == HMI_MACHINE_STOPPING;
+    bool machine_running = state->machine_state_known &&
+                           state->machine_state == HMI_MACHINE_RUNNING;
+    bool machine_paused = state->machine_state_known &&
+                          state->machine_state == HMI_MACHINE_PAUSED;
+    bool machine_stopping = state->machine_state_known &&
+                            state->machine_state == HMI_MACHINE_STOPPING;
+
+    if (s_screen.feedback_label != NULL) {
+        bool has_error = state->last_error != NULL && state->last_error[0] != '\0';
+        lv_label_set_text(s_screen.feedback_label, has_error ? state->last_error : "");
+        lv_obj_set_style_text_color(
+            s_screen.feedback_label,
+            has_error ? hmi_palette_get()->red : hmi_palette_get()->text_dim,
+            0);
+    }
 
     snprintf(value, sizeof(value), "%.1f / %.1f m", (double)state->wound_length_m, (double)state->target_length_m);
     lv_label_set_text(s_screen.length_label, value);
@@ -402,20 +430,23 @@ void screen_run_update(const hmi_state_t *state)
     lv_label_set_text(s_screen.position_label, value);
 
     if (s_screen.pause_label != NULL) {
-        bool paused = state->machine_state == HMI_MACHINE_PAUSED;
-        if (pause_pending) {
+        if (pause_pending || machine_stopping) {
             lv_label_set_text(s_screen.pause_label, "PAUSING...");
         } else if (resume_pending) {
             lv_label_set_text(s_screen.pause_label, "RESUMING...");
         } else {
-            lv_label_set_text(s_screen.pause_label, paused ? "RESUME" : "PAUSE");
+            lv_label_set_text(s_screen.pause_label, machine_paused ? "RESUME" : "PAUSE");
         }
         lv_obj_center(s_screen.pause_label);
-        set_button_enabled_color(s_screen.pause_button, paused ? HMI_COLOR_GREEN : HMI_COLOR_AMBER);
+        set_button_enabled_color(
+            s_screen.pause_button,
+            machine_paused ? HMI_COLOR_GREEN : HMI_COLOR_AMBER);
         set_button_dimmed(
             s_screen.pause_button,
-            pause_pending || resume_pending || stop_pending || machine_stopping);
+            any_pending || (!machine_running && !machine_paused));
     }
+
+    set_button_dimmed(s_screen.speed_button, true);
 
     if (s_screen.stop_label != NULL) {
         lv_label_set_text(
@@ -424,6 +455,6 @@ void screen_run_update(const hmi_state_t *state)
         lv_obj_center(s_screen.stop_label);
         set_button_dimmed(
             s_screen.stop_button,
-            stop_pending || pause_pending || resume_pending || machine_stopping);
+            any_pending || machine_stopping);
     }
 }
