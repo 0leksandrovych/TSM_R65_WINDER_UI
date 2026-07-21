@@ -57,7 +57,8 @@ void hmi_actions_home_primary(void)
     if (state->machine_state == HMI_MACHINE_ACCELERATING ||
         state->machine_state == HMI_MACHINE_RUNNING ||
         state->machine_state == HMI_MACHINE_PAUSED ||
-        state->machine_state == HMI_MACHINE_STOPPING) {
+        state->machine_state == HMI_MACHINE_STOPPING ||
+        state->machine_state == HMI_MACHINE_FINISHED) {
         hmi_actions_open_run();
         return;
     }
@@ -218,6 +219,24 @@ void hmi_actions_stop_job(void)
                             hmi_now_ms(), HMI_PENDING_STOP_TIMEOUT_MS);
     hmi_navigation_update(hmi_model_get_state());
     hmi_command_bus_emit(HMI_CMD_STOP_JOB, NULL);
+}
+
+void hmi_actions_reset_job(void)
+{
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL ||
+        !state->machine_state_known ||
+        state->machine_state != HMI_MACHINE_FINISHED ||
+        hmi_pending_command_is_active() ||
+        !hmi_command_bus_emit(HMI_CMD_RESET_JOB, NULL)) {
+        return;
+    }
+
+    hmi_pending_command_set_default(
+        HMI_PENDING_RESET_JOB,
+        "Resetting job...",
+        hmi_now_ms());
+    hmi_navigation_update(state);
 }
 
 void hmi_actions_set_speed_override(float percent)

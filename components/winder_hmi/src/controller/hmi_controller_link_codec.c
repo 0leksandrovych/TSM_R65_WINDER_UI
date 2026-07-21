@@ -36,6 +36,34 @@ static const snapshot_field_binding_t snapshot_field_bindings[] = {
         SNAPSHOT_VALUE_DOUBLE,
     },
     {
+        LINK_FIELD_MASTER_SPEED_RPS,
+        100.0,
+        offsetof(hmi_controller_link_state_snapshot_t, master_speed_rps),
+        offsetof(hmi_controller_link_state_snapshot_t, master_speed_rps_present),
+        SNAPSHOT_VALUE_DOUBLE,
+    },
+    {
+        LINK_FIELD_WOUND_LENGTH_M,
+        1000.0,
+        offsetof(hmi_controller_link_state_snapshot_t, wound_length_m),
+        offsetof(hmi_controller_link_state_snapshot_t, wound_length_m_present),
+        SNAPSHOT_VALUE_DOUBLE,
+    },
+    {
+        LINK_FIELD_COMPLETED_LAYERS,
+        1.0,
+        offsetof(hmi_controller_link_state_snapshot_t, completed_layers),
+        offsetof(hmi_controller_link_state_snapshot_t, completed_layers_present),
+        SNAPSHOT_VALUE_DOUBLE,
+    },
+    {
+        LINK_FIELD_APPLIED_RIGHT_EDGE_OFFSET_MM,
+        100.0,
+        offsetof(hmi_controller_link_state_snapshot_t, applied_right_edge_offset_mm),
+        offsetof(hmi_controller_link_state_snapshot_t, applied_right_edge_offset_mm_present),
+        SNAPSHOT_VALUE_DOUBLE,
+    },
+    {
         LINK_FIELD_JOB_WINDING_PITCH,
         100.0,
         offsetof(hmi_controller_link_state_snapshot_t, job_winding_pitch),
@@ -352,6 +380,8 @@ bool hmi_controller_link_encode_message(
         return encode_empty(out_encoded, WINDER_LINK_MSG_RESUME_JOB);
     case HMI_CONTROLLER_MSG_STOP_JOB:
         return encode_empty(out_encoded, WINDER_LINK_MSG_STOP_JOB);
+    case HMI_CONTROLLER_MSG_RESET_JOB:
+        return encode_empty(out_encoded, WINDER_LINK_MSG_RESET_JOB);
     case HMI_CONTROLLER_MSG_RESET_ALARM:
         return encode_empty(out_encoded, WINDER_LINK_MSG_RESET_ALARM);
     case HMI_CONTROLLER_MSG_RESET_UNWOUND_COUNTER:

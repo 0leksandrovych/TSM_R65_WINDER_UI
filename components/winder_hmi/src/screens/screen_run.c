@@ -76,7 +76,23 @@ static void pause_event_cb(lv_event_t *event)
 static void stop_event_cb(lv_event_t *event)
 {
     (void)event;
-    hmi_actions_stop_job();
+
+    if (hmi_pending_command_is_active()) {
+        return;
+    }
+
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL || !state->machine_state_known) {
+        return;
+    }
+
+    if (state->machine_state == HMI_MACHINE_FINISHED) {
+        hmi_actions_reset_job();
+    } else if (state->machine_state == HMI_MACHINE_ACCELERATING ||
+               state->machine_state == HMI_MACHINE_RUNNING ||
+               state->machine_state == HMI_MACHINE_PAUSED) {
+        hmi_actions_stop_job();
+    }
 }
 
 static void set_button_enabled_color(lv_obj_t *button, hmi_color_role_t role)
@@ -368,12 +384,17 @@ void screen_run_update(const hmi_state_t *state)
     bool pause_pending = pending == HMI_PENDING_PAUSE_JOB;
     bool resume_pending = pending == HMI_PENDING_RESUME_JOB;
     bool stop_pending = pending == HMI_PENDING_STOP_JOB;
+    bool reset_pending = pending == HMI_PENDING_RESET_JOB;
+    bool machine_accelerating = state->machine_state_known &&
+                                state->machine_state == HMI_MACHINE_ACCELERATING;
     bool machine_running = state->machine_state_known &&
                            state->machine_state == HMI_MACHINE_RUNNING;
     bool machine_paused = state->machine_state_known &&
                           state->machine_state == HMI_MACHINE_PAUSED;
     bool machine_stopping = state->machine_state_known &&
                             state->machine_state == HMI_MACHINE_STOPPING;
+    bool machine_finished = state->machine_state_known &&
+                            state->machine_state == HMI_MACHINE_FINISHED;
 
     if (s_screen.feedback_label != NULL) {
         bool has_error = state->last_error != NULL && state->last_error[0] != '\0';
@@ -390,8 +411,12 @@ void screen_run_update(const hmi_state_t *state)
     lv_label_set_text(s_screen.percent_label, value);
     lv_bar_set_value(s_screen.progress_bar, (int32_t)state->progress_percent, LV_ANIM_OFF);
 
-    snprintf(value, sizeof(value), "%.1f rps", (double)state->master_speed_rps);
-    value_card_set(&s_screen.master_speed, value, HMI_COLOR_GREEN);
+    if (state->master_speed_known) {
+        snprintf(value, sizeof(value), "%.1f rps", (double)state->master_speed_rps);
+        value_card_set(&s_screen.master_speed, value, HMI_COLOR_GREEN);
+    } else {
+        value_card_set(&s_screen.master_speed, "Unknown", HMI_COLOR_DIM);
+    }
     snprintf(value, sizeof(value), "%.0f %%", (double)state->speed_override_percent);
     value_card_set(&s_screen.override, value, HMI_COLOR_BLUE);
     snprintf(value, sizeof(value), "%lu", (unsigned long)state->current_layer);
@@ -449,12 +474,23 @@ void screen_run_update(const hmi_state_t *state)
     set_button_dimmed(s_screen.speed_button, true);
 
     if (s_screen.stop_label != NULL) {
-        lv_label_set_text(
-            s_screen.stop_label,
-            (stop_pending || machine_stopping) ? "STOPPING..." : "STOP");
+        if (machine_finished) {
+            lv_label_set_text(
+                s_screen.stop_label,
+                reset_pending ? "Завершення..." : "Завершити");
+            set_button_enabled_color(s_screen.stop_button, HMI_COLOR_GREEN);
+            set_button_dimmed(s_screen.stop_button, any_pending);
+        } else {
+            lv_label_set_text(
+                s_screen.stop_label,
+                (stop_pending || machine_stopping) ? "STOPPING..." : "STOP");
+            set_button_enabled_color(s_screen.stop_button, HMI_COLOR_RED);
+            set_button_dimmed(
+                s_screen.stop_button,
+                any_pending ||
+                machine_stopping ||
+                (!machine_accelerating && !machine_running && !machine_paused));
+        }
         lv_obj_center(s_screen.stop_label);
-        set_button_dimmed(
-            s_screen.stop_button,
-            any_pending || machine_stopping);
     }
 }

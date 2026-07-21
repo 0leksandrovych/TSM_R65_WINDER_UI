@@ -41,12 +41,17 @@ typedef struct {
     float unwound_length_m;
     float wound_length_m;
     float target_length_m;
+    bool target_length_known;
     float progress_percent;
     float carriage_position_mm;
     double travel_range_mm;
     bool travel_range_known;
+    float job_master_speed_rps;
+    bool job_master_speed_known;
     float master_speed_rps;
+    bool master_speed_known;
     float winding_pitch_mm;
+    bool winding_pitch_known;
     float speed_override_percent;
     float right_edge_offset_mm;
     float eta_min;

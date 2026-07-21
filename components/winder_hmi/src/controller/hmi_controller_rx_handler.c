@@ -154,26 +154,39 @@ static void handle_state_snapshot(
         }
     }
     if (snapshot->job_master_speed_present) {
-        state.master_speed_rps = (float)snapshot->job_master_speed;
+        state.job_master_speed_rps = (float)snapshot->job_master_speed;
+        state.job_master_speed_known = true;
+    }
+    if (snapshot->master_speed_rps_present) {
+        state.master_speed_rps = (float)snapshot->master_speed_rps;
+        state.master_speed_known = true;
     }
     if (snapshot->job_winding_pitch_present) {
         state.winding_pitch_mm = (float)snapshot->job_winding_pitch;
+        state.winding_pitch_known = true;
     }
     if (snapshot->job_target_length_present) {
-        state.target_length_m = (float)(snapshot->job_target_length / 1000.0);
+        state.target_length_m = (float)snapshot->job_target_length;
+        state.target_length_known = true;
     }
     if (snapshot->job_shift_every_present) {
         state.shift_every_layers = (uint32_t)snapshot->job_shift_every;
     }
-    if (snapshot->job_right_edge_shift_present) {
-        state.right_edge_offset_mm = (float)snapshot->job_right_edge_shift;
+    if (snapshot->wound_length_m_present) {
+        state.wound_length_m = (float)snapshot->wound_length_m;
+    }
+    if (snapshot->completed_layers_present) {
+        state.current_layer = (uint32_t)snapshot->completed_layers;
+    }
+    if (snapshot->applied_right_edge_offset_mm_present) {
+        state.right_edge_offset_mm = (float)snapshot->applied_right_edge_offset_mm;
     }
     if (snapshot->travel_range_mm_present) {
         state.travel_range_mm = snapshot->travel_range_mm;
         state.travel_range_known = true;
     }
 
-    /* job_state, progress, wound length, override, error, and event are not
+    /* job_state, progress, override, error, and event are not
      * available from the current controller telemetry contract. */
 
     (void)post_state_update(&state);

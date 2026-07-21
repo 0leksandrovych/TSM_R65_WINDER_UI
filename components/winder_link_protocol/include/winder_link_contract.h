@@ -34,6 +34,10 @@ typedef enum {
     LINK_FIELD_JOB_RIGHT_EDGE_SHIFT = 6,  /* float, scale x100  -> centi-mm  */
     /* ID 7 was the legacy homing sub-state field and remains retired. */
     LINK_FIELD_TRAVEL_RANGE_MM      = 8,  /* double, scale x100 -> centi-mm  */
+    LINK_FIELD_MASTER_SPEED_RPS     = 9,  /* float, scale x100  -> centi-rps */
+    LINK_FIELD_WOUND_LENGTH_M       = 10, /* double, scale x1000 -> mm       */
+    LINK_FIELD_COMPLETED_LAYERS     = 11, /* uint, scale x1 -> layers        */
+    LINK_FIELD_APPLIED_RIGHT_EDGE_OFFSET_MM = 12, /* double, scale x100 -> centi-mm */
 } link_field_id_t;
 
 typedef enum {

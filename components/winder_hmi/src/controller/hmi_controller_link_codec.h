@@ -42,6 +42,18 @@ typedef struct {
     bool job_master_speed_present;
     double job_master_speed;
 
+    bool master_speed_rps_present;
+    double master_speed_rps;
+
+    bool wound_length_m_present;
+    double wound_length_m;
+
+    bool completed_layers_present;
+    double completed_layers;
+
+    bool applied_right_edge_offset_mm_present;
+    double applied_right_edge_offset_mm;
+
     bool job_winding_pitch_present;
     double job_winding_pitch;
 

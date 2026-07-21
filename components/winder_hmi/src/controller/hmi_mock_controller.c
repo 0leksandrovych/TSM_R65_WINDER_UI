@@ -25,6 +25,7 @@ typedef enum {
     MOCK_OP_PAUSE_JOB,
     MOCK_OP_RESUME_JOB,
     MOCK_OP_STOP_JOB,
+    MOCK_OP_RESET_JOB,
     MOCK_OP_RESET_UNWOUND_COUNTER,
     MOCK_OP_RESET_ALARM,
 } mock_operation_t;
@@ -49,11 +50,17 @@ static const hmi_state_t s_ready_state = {
     .unwound_length_m       = 0.0f,
     .wound_length_m         = 0.0f,
     .target_length_m        = 125.0f,
+    .target_length_known    = true,
     .progress_percent       = 0.0f,
     .carriage_position_mm   = 0.0f,
     .travel_range_mm        = 0.0,
     .travel_range_known     = false,
+    .job_master_speed_rps   = 0.0f,
+    .job_master_speed_known = false,
     .master_speed_rps       = 0.0f,
+    .master_speed_known     = true,
+    .winding_pitch_mm       = 0.0f,
+    .winding_pitch_known    = false,
     .speed_override_percent = 100.0f,
     .right_edge_offset_mm   = 0.0f,
     .eta_min                = 0.0f,
@@ -268,6 +275,9 @@ static bool command_for_message_type(hmi_controller_msg_type_t type,
     case HMI_CONTROLLER_MSG_STOP_JOB:
         *out_command = HMI_CMD_STOP_JOB;
         return true;
+    case HMI_CONTROLLER_MSG_RESET_JOB:
+        *out_command = HMI_CMD_RESET_JOB;
+        return true;
     case HMI_CONTROLLER_MSG_RESET_ALARM:
         *out_command = HMI_CMD_RESET_ALARM;
         return true;
@@ -343,6 +353,7 @@ static void start_run(const hmi_controller_job_payload_t *job)
 {
     float target_length = payload_float_by_key(job, "target_length", 120.0f);
     float master_speed  = payload_float_by_key(job, "master_speed",    2.5f);
+    float winding_pitch = payload_float_by_key(job, "winding_pitch",   0.0f);
 
     s_homing_active = false;
     s_run_active    = true;
@@ -353,8 +364,14 @@ static void start_run(const hmi_controller_job_payload_t *job)
     s_state.selected_mode           = active_mode_title(job->mode_id);
     s_state.wound_length_m          = 0.0f;
     s_state.target_length_m         = target_length;
+    s_state.target_length_known     = true;
     s_state.progress_percent        = 0.0f;
+    s_state.job_master_speed_rps    = master_speed;
+    s_state.job_master_speed_known  = true;
     s_state.master_speed_rps        = master_speed;
+    s_state.master_speed_known      = true;
+    s_state.winding_pitch_mm        = winding_pitch;
+    s_state.winding_pitch_known     = true;
     s_state.speed_override_percent  = 100.0f;
     s_state.current_layer           = 1;
     s_state.carriage_position_mm    = 0.0f;
@@ -445,8 +462,7 @@ static void execute_pending_operation(void)
         if (s_state.machine_state == HMI_MACHINE_PAUSED) {
             (void)winder_hmi_post_command_accepted(HMI_CMD_RESUME_JOB);
             s_state.machine_state      = HMI_MACHINE_RUNNING;
-            s_state.master_speed_rps   =
-                payload_float_by_key(&s_pending_message.data.job, "master_speed", 2.5f);
+            s_state.master_speed_rps   = s_state.job_master_speed_rps;
             s_state.carriage_direction = HMI_CARRIAGE_RIGHT;
             s_state.motor_state        = "Running";
             s_state.last_event         = "Mock run resumed";
@@ -462,6 +478,21 @@ static void execute_pending_operation(void)
             stop_run();
         } else {
             (void)winder_hmi_post_command_rejected(HMI_CMD_STOP_JOB, "No active job to stop");
+        }
+        break;
+    case MOCK_OP_RESET_JOB:
+        if (s_state.machine_state == HMI_MACHINE_FINISHED) {
+            (void)winder_hmi_post_command_accepted(HMI_CMD_RESET_JOB);
+            s_state.machine_state       = HMI_MACHINE_READY;
+            s_state.master_speed_rps    = 0.0f;
+            s_state.carriage_direction  = HMI_CARRIAGE_STOPPED;
+            s_state.motor_state         = "Idle";
+            s_state.last_event          = "Mock job reset";
+            publish_state();
+        } else {
+            (void)winder_hmi_post_command_rejected(
+                HMI_CMD_RESET_JOB,
+                "Job is not finished");
         }
         break;
     case MOCK_OP_RESET_UNWOUND_COUNTER:
@@ -647,6 +678,9 @@ static bool mock_send(const hmi_controller_message_t *message, uint16_t seq, voi
         return true;
     case HMI_CONTROLLER_MSG_STOP_JOB:
         start_pending(MOCK_OP_STOP_JOB, MOCK_STOP_DELAY_MS, message);
+        return true;
+    case HMI_CONTROLLER_MSG_RESET_JOB:
+        start_pending(MOCK_OP_RESET_JOB, MOCK_SIMPLE_COMMAND_DELAY_MS, message);
         return true;
     case HMI_CONTROLLER_MSG_RESET_UNWOUND_COUNTER:
         start_pending(MOCK_OP_RESET_UNWOUND_COUNTER, MOCK_SIMPLE_COMMAND_DELAY_MS, message);

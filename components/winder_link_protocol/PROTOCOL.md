@@ -87,6 +87,7 @@ HMI -> main controller:
 0x0C  WINDER_LINK_MSG_SET_SPEED_OVERRIDE
 0x0D  WINDER_LINK_MSG_APPLY_EDGE_TRIM
 0x0E  WINDER_LINK_MSG_GET_TELEMETRY
+0x0F  WINDER_LINK_MSG_RESET_JOB
 ```
 
 Main controller -> HMI:
@@ -128,7 +129,13 @@ WINDER_LINK_MSG_ABORT_HOMING
 WINDER_LINK_MSG_PAUSE_JOB
 WINDER_LINK_MSG_RESUME_JOB
 WINDER_LINK_MSG_STOP_JOB
+WINDER_LINK_MSG_RESET_JOB
 ```
+
+`WINDER_LINK_MSG_RESET_JOB` requests the controller transition from
+`LINK_MACHINE_STATE_FINISHED` to `LINK_MACHINE_STATE_READY`. Its acceptance
+does not complete the transition; the following `STATE_SNAPSHOT` is the source
+of truth for the resulting machine state.
 
 ## 7. ACK / REJECT Payload Contract
 
@@ -192,7 +199,20 @@ Implemented field IDs:
 6  LINK_FIELD_JOB_RIGHT_EDGE_SHIFT  float,     scale x100  -> centi-mm
 7  retired legacy homing sub-state field (ignored by the new HMI)
 8  LINK_FIELD_TRAVEL_RANGE_MM       double,    scale x100  -> centi-mm
+9  LINK_FIELD_MASTER_SPEED_RPS      float,     scale x100  -> centi-rps
+10 LINK_FIELD_WOUND_LENGTH_M        double,    scale x1000 -> millimetres on wire
+11 LINK_FIELD_COMPLETED_LAYERS      uint,      scale x1    -> layers
+12 LINK_FIELD_APPLIED_RIGHT_EDGE_OFFSET_MM
+                                      double,  scale x100  -> centi-mm
 ```
+
+`LINK_FIELD_JOB_MASTER_SPEED` is the configured master speed from the active
+job/context. `LINK_FIELD_MASTER_SPEED_RPS` is the current runtime speed of the
+master motor. They are separate values and may both be present in one snapshot.
+
+`LINK_FIELD_JOB_TARGET_LENGTH` carries an `int32` wire value scaled by 1000.
+The wire value is expressed in millimeters, and the HMI decoder exposes the
+decoded value in meters (`scaled_value / 1000.0`).
 
 `LINK_FIELD_MACHINE_STATE` carries a `link_machine_state_t` value. It must
 not carry a generated controller runtime state ID. Homing progress is represented
@@ -202,6 +222,21 @@ retired field ID 7, are ignored without rejecting the rest of the snapshot.
 `LINK_FIELD_TRAVEL_RANGE_MM` carries an `int32` wire value scaled by 100. The
 HMI decodes it as `scaled_value / 100.0`; zero is a present value and is distinct
 from an omitted field.
+
+`LINK_FIELD_MASTER_SPEED_RPS` carries an `int32` wire value scaled by 100. The
+HMI decodes it as `scaled_value / 100.0` revolutions per second; zero is a valid
+present runtime speed and is distinct from an omitted field.
+
+`LINK_FIELD_WOUND_LENGTH_M` carries the controller-context wound length in
+meters as an `int32` scaled by 1000. The wire value is numerically millimeters;
+the HMI decoder exposes `scaled_value / 1000.0` meters.
+
+`LINK_FIELD_COMPLETED_LAYERS` carries the completed-layer count with scale 1.
+
+`LINK_FIELD_JOB_RIGHT_EDGE_SHIFT` is the configured per-step job parameter.
+It is not the current applied offset. `LINK_FIELD_APPLIED_RIGHT_EDGE_OFFSET_MM`
+carries the accumulated runtime offset as an `int32` scaled by 100, and the HMI
+decoder exposes `scaled_value / 100.0` millimeters.
 
 The numeric values of the machine-state enum are a stable part of the wire contract:
 

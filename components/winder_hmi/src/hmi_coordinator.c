@@ -40,6 +40,8 @@ static hmi_pending_command_t expected_pending_for_command(hmi_command_t command)
         return HMI_PENDING_RESUME_JOB;
     case HMI_CMD_STOP_JOB:
         return HMI_PENDING_STOP_JOB;
+    case HMI_CMD_RESET_JOB:
+        return HMI_PENDING_RESET_JOB;
     case HMI_CMD_RESET_UNWOUND_COUNTER:
         return HMI_PENDING_RESET_UNWOUND_COUNTER;
     case HMI_CMD_RESET_ALARM:
@@ -74,7 +76,9 @@ static void handle_run_command_completion(const hmi_state_t *state)
     if ((pending == HMI_PENDING_PAUSE_JOB &&
          state->machine_state == HMI_MACHINE_PAUSED) ||
         (pending == HMI_PENDING_RESUME_JOB &&
-         state->machine_state == HMI_MACHINE_RUNNING)) {
+         state->machine_state == HMI_MACHINE_RUNNING) ||
+        (pending == HMI_PENDING_RESET_JOB &&
+         state->machine_state == HMI_MACHINE_READY)) {
         hmi_pending_command_clear();
     }
 }
@@ -122,7 +126,8 @@ void hmi_coordinator_on_command_accepted(hmi_command_t command)
     }
 
     if (expected != HMI_PENDING_PAUSE_JOB &&
-        expected != HMI_PENDING_RESUME_JOB) {
+        expected != HMI_PENDING_RESUME_JOB &&
+        expected != HMI_PENDING_RESET_JOB) {
         hmi_pending_command_clear();
     }
     hmi_navigation_update(hmi_model_get_state());

@@ -397,6 +397,7 @@ static bool test_machine_state_numeric_contract(void)
            LINK_MACHINE_STATE_FINISHED == 13 &&
            LINK_MACHINE_STATE_ALARM == 14 &&
            LINK_FIELD_TRAVEL_RANGE_MM == 8 &&
+           LINK_FIELD_MASTER_SPEED_RPS == 9 &&
            WINDER_LINK_MSG_ABORT_HOMING == 0x06;
 }
 
@@ -461,10 +462,11 @@ static bool test_decode_state_snapshot_frame_loopback(void)
 {
     const snapshot_test_field_t fields[] = {
         { LINK_FIELD_MACHINE_STATE, LINK_MACHINE_STATE_HOMING_MEASURING_TRAVEL },
-        { LINK_FIELD_TRAVEL_RANGE_MM, 25025 },
-        { LINK_FIELD_JOB_MASTER_SPEED, 250 },
-        { LINK_FIELD_JOB_WINDING_PITCH, 80 },
-        { LINK_FIELD_JOB_TARGET_LENGTH, 120000 },
+        { LINK_FIELD_TRAVEL_RANGE_MM, 15000 },
+        { LINK_FIELD_JOB_MASTER_SPEED, 1000 },
+        { LINK_FIELD_MASTER_SPEED_RPS, 1234 },
+        { LINK_FIELD_JOB_WINDING_PITCH, 50 },
+        { LINK_FIELD_JOB_TARGET_LENGTH, 100000 },
         { LINK_FIELD_JOB_SHIFT_EVERY, 3 },
         { LINK_FIELD_JOB_RIGHT_EDGE_SHIFT, 100 },
     };
@@ -479,12 +481,52 @@ static bool test_decode_state_snapshot_frame_loopback(void)
            state->machine_state_present &&
            state->machine_state == LINK_MACHINE_STATE_HOMING_MEASURING_TRAVEL &&
            state->travel_range_mm_present &&
-           state->travel_range_mm == 250.25 &&
-           state->job_master_speed_present && state->job_master_speed == 2.5 &&
-           state->job_winding_pitch_present && state->job_winding_pitch == 0.8 &&
-           state->job_target_length_present && state->job_target_length == 120.0 &&
+           state->travel_range_mm == 150.0 &&
+           state->job_master_speed_present && state->job_master_speed == 10.0 &&
+           state->master_speed_rps_present && state->master_speed_rps == 12.34 &&
+           state->job_winding_pitch_present && state->job_winding_pitch == 0.5 &&
+           state->job_target_length_present && state->job_target_length == 100.0 &&
            state->job_shift_every_present && state->job_shift_every == 3.0 &&
            state->job_right_edge_shift_present && state->job_right_edge_shift == 1.0;
+}
+
+static bool test_decode_runtime_speed_values(void)
+{
+    const snapshot_test_field_t zero_field[] = {
+        { LINK_FIELD_MASTER_SPEED_RPS, 0 },
+    };
+    const snapshot_test_field_t running_field[] = {
+        { LINK_FIELD_MASTER_SPEED_RPS, 625 },
+    };
+    hmi_controller_link_decoded_t zero = {0};
+    hmi_controller_link_decoded_t running = {0};
+
+    return decode_snapshot_fields(zero_field, 1U, &zero) &&
+           zero.data.state_snapshot.master_speed_rps_present &&
+           zero.data.state_snapshot.master_speed_rps == 0.0 &&
+           !zero.data.state_snapshot.job_master_speed_present &&
+           decode_snapshot_fields(running_field, 1U, &running) &&
+           running.data.state_snapshot.master_speed_rps_present &&
+           running.data.state_snapshot.master_speed_rps == 6.25;
+}
+
+static bool test_decode_snapshot_truncated_payload_rejected(void)
+{
+    uint8_t payload[7] = {0};
+    winder_link_payload_writer_t writer;
+    if (!winder_link_payload_writer_init(&writer, payload, sizeof(payload)) ||
+        !winder_link_payload_write_u8(&writer, 2U) ||
+        !winder_link_payload_write_u16_le(&writer, LINK_FIELD_MASTER_SPEED_RPS) ||
+        !winder_link_payload_write_i32_le(&writer, 625)) {
+        return false;
+    }
+
+    hmi_controller_link_decoded_t decoded = {0};
+    return !hmi_controller_link_decode_message(
+        WINDER_LINK_MSG_STATE_SNAPSHOT,
+        payload,
+        winder_link_payload_writer_len(&writer),
+        &decoded);
 }
 
 static bool test_decode_travel_range_values(void)
@@ -593,6 +635,8 @@ bool hmi_controller_link_codec_selftest(void)
            test_machine_state_numeric_contract() &&
            test_machine_state_mapper() &&
            test_decode_state_snapshot_frame_loopback() &&
+           test_decode_runtime_speed_values() &&
+           test_decode_snapshot_truncated_payload_rejected() &&
            test_decode_travel_range_values() &&
            test_unknown_and_missing_fields() &&
            test_unknown_machine_state_does_not_map() &&
