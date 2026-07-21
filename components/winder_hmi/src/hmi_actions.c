@@ -54,11 +54,15 @@ void hmi_actions_home_primary(void)
         return;
     }
 
+    if (state->machine_state == HMI_MACHINE_FINISHED) {
+        hmi_actions_open_finished();
+        return;
+    }
+
     if (state->machine_state == HMI_MACHINE_ACCELERATING ||
         state->machine_state == HMI_MACHINE_RUNNING ||
         state->machine_state == HMI_MACHINE_PAUSED ||
-        state->machine_state == HMI_MACHINE_STOPPING ||
-        state->machine_state == HMI_MACHINE_FINISHED) {
+        state->machine_state == HMI_MACHINE_STOPPING) {
         hmi_actions_open_run();
         return;
     }
@@ -135,6 +139,11 @@ void hmi_actions_open_homing(void)
 void hmi_actions_open_run(void)
 {
     hmi_navigation_show(HMI_SCREEN_RUN);
+}
+
+void hmi_actions_open_finished(void)
+{
+    hmi_navigation_show(HMI_SCREEN_FINISHED);
 }
 
 void hmi_actions_open_diagnostics(void)

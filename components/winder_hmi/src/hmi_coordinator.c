@@ -98,11 +98,30 @@ void hmi_coordinator_on_state_update(const hmi_state_t *state)
     bool was_active_run = previous_state != NULL &&
                           previous_state->machine_state_known &&
                           machine_is_active_run_state(previous_state->machine_state);
+    bool was_finished = previous_state != NULL &&
+                        previous_state->machine_state_known &&
+                        previous_state->machine_state == HMI_MACHINE_FINISHED;
 
     hmi_model_set_state(state);
     const hmi_state_t *current_state = hmi_model_get_state();
     handle_run_command_completion(current_state);
     handle_alarm_interrupt(current_state);
+
+    bool entered_finished = current_state->machine_state_known &&
+                            current_state->machine_state == HMI_MACHINE_FINISHED &&
+                            !was_finished;
+    if (entered_finished &&
+        hmi_navigation_current() != HMI_SCREEN_FINISHED) {
+        hmi_navigation_show(HMI_SCREEN_FINISHED);
+        return;
+    }
+
+    if (current_state->machine_state_known &&
+        current_state->machine_state == HMI_MACHINE_READY &&
+        hmi_navigation_current() == HMI_SCREEN_FINISHED) {
+        hmi_navigation_home();
+        return;
+    }
 
     bool entered_active_run = current_state->machine_state_known &&
                               machine_is_active_run_state(current_state->machine_state) &&

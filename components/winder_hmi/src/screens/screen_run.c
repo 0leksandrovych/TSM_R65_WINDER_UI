@@ -86,11 +86,9 @@ static void stop_event_cb(lv_event_t *event)
         return;
     }
 
-    if (state->machine_state == HMI_MACHINE_FINISHED) {
-        hmi_actions_reset_job();
-    } else if (state->machine_state == HMI_MACHINE_ACCELERATING ||
-               state->machine_state == HMI_MACHINE_RUNNING ||
-               state->machine_state == HMI_MACHINE_PAUSED) {
+    if (state->machine_state == HMI_MACHINE_ACCELERATING ||
+        state->machine_state == HMI_MACHINE_RUNNING ||
+        state->machine_state == HMI_MACHINE_PAUSED) {
         hmi_actions_stop_job();
     }
 }
@@ -384,7 +382,6 @@ void screen_run_update(const hmi_state_t *state)
     bool pause_pending = pending == HMI_PENDING_PAUSE_JOB;
     bool resume_pending = pending == HMI_PENDING_RESUME_JOB;
     bool stop_pending = pending == HMI_PENDING_STOP_JOB;
-    bool reset_pending = pending == HMI_PENDING_RESET_JOB;
     bool machine_accelerating = state->machine_state_known &&
                                 state->machine_state == HMI_MACHINE_ACCELERATING;
     bool machine_running = state->machine_state_known &&
@@ -393,8 +390,6 @@ void screen_run_update(const hmi_state_t *state)
                           state->machine_state == HMI_MACHINE_PAUSED;
     bool machine_stopping = state->machine_state_known &&
                             state->machine_state == HMI_MACHINE_STOPPING;
-    bool machine_finished = state->machine_state_known &&
-                            state->machine_state == HMI_MACHINE_FINISHED;
 
     if (s_screen.feedback_label != NULL) {
         bool has_error = state->last_error != NULL && state->last_error[0] != '\0';
@@ -474,23 +469,15 @@ void screen_run_update(const hmi_state_t *state)
     set_button_dimmed(s_screen.speed_button, true);
 
     if (s_screen.stop_label != NULL) {
-        if (machine_finished) {
-            lv_label_set_text(
-                s_screen.stop_label,
-                reset_pending ? "Завершення..." : "Завершити");
-            set_button_enabled_color(s_screen.stop_button, HMI_COLOR_GREEN);
-            set_button_dimmed(s_screen.stop_button, any_pending);
-        } else {
-            lv_label_set_text(
-                s_screen.stop_label,
-                (stop_pending || machine_stopping) ? "STOPPING..." : "STOP");
-            set_button_enabled_color(s_screen.stop_button, HMI_COLOR_RED);
-            set_button_dimmed(
-                s_screen.stop_button,
-                any_pending ||
-                machine_stopping ||
-                (!machine_accelerating && !machine_running && !machine_paused));
-        }
+        lv_label_set_text(
+            s_screen.stop_label,
+            (stop_pending || machine_stopping) ? "STOPPING..." : "STOP");
+        set_button_enabled_color(s_screen.stop_button, HMI_COLOR_RED);
+        set_button_dimmed(
+            s_screen.stop_button,
+            any_pending ||
+            machine_stopping ||
+            (!machine_accelerating && !machine_running && !machine_paused));
         lv_obj_center(s_screen.stop_label);
     }
 }

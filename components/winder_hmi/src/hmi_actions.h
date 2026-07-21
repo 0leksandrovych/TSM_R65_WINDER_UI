@@ -17,6 +17,7 @@ void hmi_actions_update_job_param(uint16_t param_id, hmi_param_value_t value);
 void hmi_actions_confirm_start_job(void);
 void hmi_actions_open_homing(void);
 void hmi_actions_open_run(void);
+void hmi_actions_open_finished(void);
 void hmi_actions_open_diagnostics(void);
 void hmi_actions_open_settings(void);
 void hmi_actions_placeholder_machine(void);

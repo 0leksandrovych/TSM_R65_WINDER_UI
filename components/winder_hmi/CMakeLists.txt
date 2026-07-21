@@ -32,6 +32,7 @@ idf_component_register(
         "src/screens/screen_confirm_start.c"
         "src/screens/screen_homing.c"
         "src/screens/screen_run.c"
+        "src/screens/screen_finished.c"
         "src/screens/screen_diagnostics.c"
         "src/screens/screen_settings.c"
         "src/demo/hmi_demo_state.c"

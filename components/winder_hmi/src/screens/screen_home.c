@@ -186,6 +186,9 @@ static const char *primary_text_for_state(const hmi_state_t *state)
     if (state->machine_state == HMI_MACHINE_READY && state->job_state == HMI_JOB_VALID) {
         return "CONFIRM START";
     }
+    if (state->machine_state == HMI_MACHINE_FINISHED) {
+        return "VIEW SUMMARY";
+    }
     if (state->machine_state == HMI_MACHINE_ACCELERATING ||
         state->machine_state == HMI_MACHINE_RUNNING ||
         state->machine_state == HMI_MACHINE_PAUSED ||

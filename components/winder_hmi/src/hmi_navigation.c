@@ -9,6 +9,7 @@
 #include "screen_home.h"
 #include "screen_homing.h"
 #include "screen_jobs.h"
+#include "screen_finished.h"
 #include "screen_run.h"
 #include "screen_settings.h"
 
@@ -76,6 +77,9 @@ void hmi_navigation_show(hmi_screen_id_t screen_id)
     case HMI_SCREEN_RUN:
         screen_run_create(s_root);
         break;
+    case HMI_SCREEN_FINISHED:
+        screen_finished_create(s_root);
+        break;
     case HMI_SCREEN_DIAGNOSTICS:
         screen_diagnostics_create(s_root);
         break;
@@ -118,6 +122,9 @@ void hmi_navigation_update(const hmi_state_t *state)
         break;
     case HMI_SCREEN_RUN:
         screen_run_update(state);
+        break;
+    case HMI_SCREEN_FINISHED:
+        screen_finished_update(state);
         break;
     case HMI_SCREEN_DIAGNOSTICS:
         screen_diagnostics_update(state);
