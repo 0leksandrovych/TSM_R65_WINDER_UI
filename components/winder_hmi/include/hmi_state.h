@@ -59,8 +59,6 @@ typedef struct {
     uint32_t shift_every_layers;
     uint32_t encoder_count;
     hmi_carriage_direction_t carriage_direction;
-    bool left_limit_active;
-    bool right_limit_active;
     const char *motor_state;
     const char *last_event;
     const char *last_error;

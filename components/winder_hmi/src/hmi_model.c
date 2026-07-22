@@ -32,8 +32,6 @@ void hmi_model_init(void)
     s_state.shift_every_layers = 0;
     s_state.encoder_count = 0;
     s_state.carriage_direction = HMI_CARRIAGE_STOPPED;
-    s_state.left_limit_active = false;
-    s_state.right_limit_active = false;
     s_state.motor_state = "Idle";
     s_state.last_event = "Waiting for controller";
     s_state.last_error = NULL;

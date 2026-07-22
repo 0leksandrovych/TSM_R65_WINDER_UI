@@ -69,7 +69,7 @@ static void create_topbar(lv_obj_t *root)
     lv_obj_t *title = lv_label_create(topbar);
     lv_obj_add_style(title, &styles->topbar_title, 0);
     lv_obj_set_style_text_color(title, hmi_palette_get()->green, 0);
-    lv_label_set_text(title, "Завдання завершено");
+    lv_label_set_text(title, "JOB COMPLETE");
 
     lv_obj_t *spacer = lv_obj_create(topbar);
     lv_obj_remove_style_all(spacer);
@@ -111,7 +111,7 @@ static lv_obj_t *create_finish_button(lv_obj_t *parent)
     lv_obj_add_event_cb(button, finish_event_cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *label = lv_label_create(button);
-    lv_label_set_text(label, "Завершити");
+    lv_label_set_text(label, "CLOSE JOB");
     lv_obj_center(label);
 
     return button;
@@ -133,19 +133,19 @@ void screen_finished_create(lv_obj_t *root)
     lv_obj_set_style_pad_column(content, 12, 0);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *status_panel = create_panel(content, 300, "СТАТУС");
+    lv_obj_t *status_panel = create_panel(content, 330, "STATUS");
     s_screen.status_label = lv_label_create(status_panel);
-    lv_obj_add_style(s_screen.status_label, &styles->status_big, 0);
+    lv_obj_add_style(s_screen.status_label, &styles->status_text, 0);
     lv_obj_set_style_text_color(s_screen.status_label, hmi_palette_get()->green, 0);
     lv_label_set_long_mode(s_screen.status_label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(s_screen.status_label, LV_PCT(100));
-    lv_label_set_text(s_screen.status_label, "Намотування успішно завершено");
+    lv_label_set_text(s_screen.status_label, "Winding completed successfully");
 
-    lv_obj_t *summary_panel = create_panel(content, 460, "ПІДСУМОК");
-    widget_stat_row_create(summary_panel, &s_screen.wound_length, "Намотана довжина");
-    widget_stat_row_create(summary_panel, &s_screen.target_length, "Задана довжина");
-    widget_stat_row_create(summary_panel, &s_screen.completed_layers, "Завершені шари");
-    widget_stat_row_create(summary_panel, &s_screen.applied_offset, "Зміщення правого краю");
+    lv_obj_t *summary_panel = create_panel(content, 430, "SUMMARY");
+    widget_stat_row_create(summary_panel, &s_screen.wound_length, "Wound length");
+    widget_stat_row_create(summary_panel, &s_screen.target_length, "Target length");
+    widget_stat_row_create(summary_panel, &s_screen.completed_layers, "Completed layers");
+    widget_stat_row_create(summary_panel, &s_screen.applied_offset, "Applied right-edge offset");
 
     lv_obj_t *buttons = lv_obj_create(root);
     lv_obj_remove_style_all(buttons);
@@ -177,33 +177,33 @@ void screen_finished_update(const hmi_state_t *state)
 
     widget_status_badge_update(&s_screen.badge, state);
 
-    snprintf(value, sizeof(value), "%.3f м", (double)state->wound_length_m);
+    snprintf(value, sizeof(value), "%.3f m", (double)state->wound_length_m);
     widget_stat_row_set_value(&s_screen.wound_length, value, HMI_COLOR_NEUTRAL);
 
-    snprintf(value, sizeof(value), "%.3f м", (double)state->target_length_m);
+    snprintf(value, sizeof(value), "%.3f m", (double)state->target_length_m);
     widget_stat_row_set_value(&s_screen.target_length, value, HMI_COLOR_NEUTRAL);
 
     snprintf(value, sizeof(value), "%lu", (unsigned long)state->current_layer);
     widget_stat_row_set_value(&s_screen.completed_layers, value, HMI_COLOR_NEUTRAL);
 
-    snprintf(value, sizeof(value), "%+.2f мм", (double)state->right_edge_offset_mm);
+    snprintf(value, sizeof(value), "%+.2f mm", (double)state->right_edge_offset_mm);
     widget_stat_row_set_value(&s_screen.applied_offset, value, HMI_COLOR_NEUTRAL);
 
     if (reset_pending) {
-        lv_label_set_text(s_screen.status_label, "Завершення...");
+        lv_label_set_text(s_screen.status_label, "Closing completed job...");
         lv_obj_set_style_text_color(s_screen.status_label, hmi_palette_get()->amber, 0);
     } else if (finished) {
-        lv_label_set_text(s_screen.status_label, "Намотування успішно завершено");
+        lv_label_set_text(s_screen.status_label, "Winding completed successfully");
         lv_obj_set_style_text_color(s_screen.status_label, hmi_palette_get()->green, 0);
     } else {
-        lv_label_set_text(s_screen.status_label, "Очікування стану контролера");
+        lv_label_set_text(s_screen.status_label, "Waiting for controller");
         lv_obj_set_style_text_color(s_screen.status_label, hmi_palette_get()->text_dim, 0);
     }
 
     if (s_screen.finish_label != NULL) {
         lv_label_set_text(
             s_screen.finish_label,
-            reset_pending ? "Завершення..." : "Завершити");
+            reset_pending ? "CLOSING..." : "CLOSE JOB");
         lv_obj_center(s_screen.finish_label);
     }
     set_button_enabled(s_screen.finish_button, finished && !pending_active);

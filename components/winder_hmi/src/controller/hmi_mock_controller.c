@@ -67,8 +67,6 @@ static const hmi_state_t s_ready_state = {
     .current_layer          = 0,
     .encoder_count          = 0,
     .carriage_direction     = HMI_CARRIAGE_STOPPED,
-    .left_limit_active      = false,
-    .right_limit_active     = false,
     .motor_state            = "Idle",
     .last_event             = "Mock controller ready",
     .last_error             = NULL,
@@ -305,8 +303,6 @@ static void enter_homing(void)
     s_homing_elapsed_ms = 0;
     s_state.machine_state       = HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE;
     s_state.machine_state_known = true;
-    s_state.left_limit_active   = false;
-    s_state.right_limit_active  = false;
     s_state.carriage_position_mm = 125.0f;
     s_state.travel_range_mm     = 0.0;
     s_state.travel_range_known  = false;
@@ -326,8 +322,6 @@ static void finish_homing(void)
     s_state.carriage_position_mm = 0.0f;
     s_state.travel_range_mm      = 250.0;
     s_state.travel_range_known   = true;
-    s_state.left_limit_active    = true;
-    s_state.right_limit_active   = false;
     s_state.master_speed_rps     = 0.0f;
     s_state.motor_state          = "Idle";
     s_state.last_event           = "Homing complete";
@@ -342,8 +336,6 @@ static void abort_homing(void)
     s_state.machine_state_known  = true;
     s_state.master_speed_rps     = 0.0f;
     s_state.carriage_position_mm = 0.0f;
-    s_state.left_limit_active    = false;
-    s_state.right_limit_active   = false;
     s_state.motor_state          = "Idle";
     s_state.last_event           = "Homing aborted";
     publish_state();
@@ -547,18 +539,14 @@ static void update_homing(uint32_t elapsed_ms)
         if (s_state.carriage_position_mm < 0.0f) {
             s_state.carriage_position_mm = 0.0f;
         }
-        s_state.left_limit_active = false;
     } else if (s_homing_elapsed_ms < 400U) {
         s_state.machine_state        = HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE;
         s_state.carriage_position_mm = 12.0f;
-        s_state.right_limit_active   = true;
     } else if (s_homing_elapsed_ms < 600U) {
         s_state.machine_state        = HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE;
         s_state.carriage_position_mm = 6.0f;
-        s_state.right_limit_active   = false;
     } else if (s_homing_elapsed_ms < 800U) {
         s_state.machine_state        = HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE;
-        s_state.left_limit_active    = true;
     } else if (s_homing_elapsed_ms < 1000U) {
         s_state.machine_state        = HMI_MACHINE_HOMING_MEASURING_TRAVEL;
         s_state.travel_range_mm      = 250.0;

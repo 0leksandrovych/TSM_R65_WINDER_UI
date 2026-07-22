@@ -15,8 +15,6 @@ typedef struct {
     lv_obj_t *step_label;
     lv_obj_t *message_label;
     hmi_stat_row_t state_row;
-    hmi_stat_row_t left_limit_row;
-    hmi_stat_row_t right_limit_row;
     hmi_stat_row_t travel_row;
     lv_obj_t *start_button;
     lv_obj_t *abort_button;
@@ -141,17 +139,17 @@ static const char *homing_stage_text(const hmi_state_t *state)
     case HMI_MACHINE_HOMING_REQUIRED:
         return "Homing required";
     case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
-        return "Searching right reference";
+        return "Searching right optical reference";
     case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
-        return "Backing off right reference";
+        return "Backing off right optical reference";
     case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
-        return "Searching left reference";
+        return "Searching left optical reference";
     case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
-        return "Backing off left reference";
+        return "Backing off left optical reference";
     case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
-        return "Measuring travel";
+        return "Measuring travel range";
     case HMI_MACHINE_HOMING_APPLYING_OFFSET:
-        return "Applying offset";
+        return "Applying working offset";
     case HMI_MACHINE_HOMING_COMPLETING:
         return "Completing homing";
     case HMI_MACHINE_READY:
@@ -200,14 +198,14 @@ void screen_homing_create(lv_obj_t *root)
     lv_obj_add_style(s_screen.message_label, &styles->status_text, 0);
     lv_label_set_long_mode(s_screen.message_label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(s_screen.message_label, LV_PCT(100));
-    lv_label_set_text(s_screen.message_label, "Homing references the carriage against the limit sensors so positions are known.");
+    lv_label_set_text(s_screen.message_label, "Homing locates the carriage using the left and right optical reference points and measures the usable travel range.");
 
     lv_obj_t *panel = lv_obj_create(content);
     lv_obj_remove_style_all(panel);
     lv_obj_add_style(panel, &styles->panel, 0);
     lv_obj_set_size(panel, 374, LV_PCT(100));
     lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(panel, 10, 0);
+    lv_obj_set_style_pad_row(panel, 16, 0);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(panel);
@@ -215,9 +213,9 @@ void screen_homing_create(lv_obj_t *root)
     lv_label_set_text(title, "HOMING STATUS");
 
     widget_stat_row_create(panel, &s_screen.state_row, "Current stage");
-    widget_stat_row_create(panel, &s_screen.left_limit_row, "Left limit sensor");
-    widget_stat_row_create(panel, &s_screen.right_limit_row, "Right limit sensor");
     widget_stat_row_create(panel, &s_screen.travel_row, "Travel range");
+    lv_obj_set_flex_grow(s_screen.state_row.root, 1);
+    lv_obj_set_flex_grow(s_screen.travel_row.root, 1);
 
     lv_obj_t *buttons = lv_obj_create(root);
     lv_obj_remove_style_all(buttons);
@@ -265,10 +263,6 @@ void screen_homing_update(const hmi_state_t *state)
 
     widget_stat_row_set_value(&s_screen.state_row, stage_text,
                               complete ? HMI_COLOR_GREEN : (running ? HMI_COLOR_BLUE : HMI_COLOR_AMBER));
-    widget_stat_row_set_value(&s_screen.left_limit_row, state->left_limit_active ? "ACTIVE" : "Open",
-                              state->left_limit_active ? HMI_COLOR_GREEN : HMI_COLOR_DIM);
-    widget_stat_row_set_value(&s_screen.right_limit_row, state->right_limit_active ? "ACTIVE" : "Open",
-                              state->right_limit_active ? HMI_COLOR_GREEN : HMI_COLOR_DIM);
 
     if (state->travel_range_known) {
         snprintf(value, sizeof(value), "%.2f mm", state->travel_range_mm);
