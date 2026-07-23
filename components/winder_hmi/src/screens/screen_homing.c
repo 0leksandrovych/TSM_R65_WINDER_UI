@@ -17,6 +17,7 @@ typedef struct {
     hmi_stat_row_t state_row;
     hmi_stat_row_t travel_row;
     lv_obj_t *start_button;
+    lv_obj_t *start_label;
     lv_obj_t *abort_button;
     lv_obj_t *continue_label;
 } homing_screen_t;
@@ -226,6 +227,7 @@ void screen_homing_create(lv_obj_t *root)
     lv_obj_clear_flag(buttons, LV_OBJ_FLAG_SCROLLABLE);
 
     s_screen.start_button = create_button(buttons, "START HOMING", HMI_COLOR_BLUE, start_event_cb);
+    s_screen.start_label = lv_obj_get_child(s_screen.start_button, 0);
     s_screen.abort_button = create_button(buttons, "ABORT HOMING", HMI_COLOR_RED, abort_event_cb);
     lv_obj_t *continue_button = create_button(buttons, "BACK HOME", HMI_COLOR_DIM, back_event_cb);
     s_screen.continue_label = lv_obj_get_child(continue_button, 0);
@@ -251,14 +253,15 @@ void screen_homing_update(const hmi_state_t *state)
     lv_obj_set_style_text_color(s_screen.step_label, complete ? hmi_palette_get()->green : hmi_palette_get()->blue, 0);
     if (start_pending || abort_pending) {
         lv_label_set_text(s_screen.message_label, hmi_pending_command_get_message());
-    } else if (complete) {
-        lv_label_set_text(s_screen.message_label, "Homing completed successfully");
     } else if (running) {
         lv_label_set_text(s_screen.message_label, "Homing is in progress. Use ABORT HOMING only when motion must be interrupted.");
+    } else if (complete) {
+        /* READY: homing already established references; RE-HOME redefines them. */
+        lv_label_set_text(s_screen.message_label, "The machine is homed. Re-homing re-measures the optical references and redefines the machine travel range.");
     } else if (required) {
         lv_label_set_text(s_screen.message_label, "Start homing to establish the machine travel references.");
     } else {
-        lv_label_set_text(s_screen.message_label, "Homing status follows controller telemetry.");
+        lv_label_set_text(s_screen.message_label, "Homing is unavailable in the current machine state.");
     }
 
     widget_stat_row_set_value(&s_screen.state_row, stage_text,
@@ -271,7 +274,14 @@ void screen_homing_update(const hmi_state_t *state)
         widget_stat_row_set_value(&s_screen.travel_row, "Unknown", HMI_COLOR_DIM);
     }
 
-    set_button_enabled(s_screen.start_button, required && !start_pending && !abort_pending, HMI_COLOR_BLUE);
+    /* START_HOMING is offered both when references are missing (HOMING_REQUIRED)
+     * and when the machine is idle and can redefine them (READY -> RE-HOME). */
+    if (s_screen.start_label != NULL) {
+        lv_label_set_text(s_screen.start_label, complete ? "RE-HOME" : "START HOMING");
+        lv_obj_center(s_screen.start_label);
+    }
+    bool can_start = (required || complete) && !running && !start_pending && !abort_pending;
+    set_button_enabled(s_screen.start_button, can_start, HMI_COLOR_BLUE);
     set_button_enabled(s_screen.abort_button, running && !start_pending && !abort_pending, HMI_COLOR_RED);
     if (running) {
         lv_obj_add_flag(s_screen.start_button, LV_OBJ_FLAG_HIDDEN);

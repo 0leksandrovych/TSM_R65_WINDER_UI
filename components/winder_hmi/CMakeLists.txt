@@ -26,6 +26,7 @@ idf_component_register(
         "src/widgets/widget_status_badge.c"
         "src/widgets/widget_stat_row.c"
         "src/modals/modal_numeric_keypad.c"
+        "src/modals/modal_confirm.c"
         "src/screens/screen_home.c"
         "src/screens/screen_jobs.c"
         "src/screens/screen_conical_setup.c"

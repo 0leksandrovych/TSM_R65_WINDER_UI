@@ -38,8 +38,10 @@ static hmi_pending_command_t expected_pending_for_command(hmi_command_t command)
         return HMI_PENDING_PAUSE_JOB;
     case HMI_CMD_RESUME_JOB:
         return HMI_PENDING_RESUME_JOB;
-    case HMI_CMD_STOP_JOB:
-        return HMI_PENDING_STOP_JOB;
+    case HMI_CMD_ABORT_JOB:
+        return HMI_PENDING_ABORT_JOB;
+    case HMI_CMD_FINISH_JOB:
+        return HMI_PENDING_FINISH_JOB;
     case HMI_CMD_RESET_JOB:
         return HMI_PENDING_RESET_JOB;
     case HMI_CMD_RESET_UNWOUND_COUNTER:
@@ -72,13 +74,21 @@ static void handle_run_command_completion(const hmi_state_t *state)
         return;
     }
 
+    /* Job-lifecycle commands are cleared only by the telemetry snapshot that
+     * confirms the resulting machine state — never by the command ACK alone.
+     * ABORT and FINISH both resolve to FINISHED; RESET resolves to
+     * HOMING_REQUIRED (not READY). */
     hmi_pending_command_t pending = hmi_pending_command_get();
     if ((pending == HMI_PENDING_PAUSE_JOB &&
          state->machine_state == HMI_MACHINE_PAUSED) ||
         (pending == HMI_PENDING_RESUME_JOB &&
          state->machine_state == HMI_MACHINE_RUNNING) ||
+        (pending == HMI_PENDING_ABORT_JOB &&
+         state->machine_state == HMI_MACHINE_FINISHED) ||
+        (pending == HMI_PENDING_FINISH_JOB &&
+         state->machine_state == HMI_MACHINE_FINISHED) ||
         (pending == HMI_PENDING_RESET_JOB &&
-         state->machine_state == HMI_MACHINE_READY)) {
+         state->machine_state == HMI_MACHINE_HOMING_REQUIRED)) {
         hmi_pending_command_clear();
     }
 }
@@ -116,8 +126,11 @@ void hmi_coordinator_on_state_update(const hmi_state_t *state)
         return;
     }
 
+    /* CLOSE JOB (RESET_JOB) drives FINISHED -> HOMING_REQUIRED on the
+     * controller. Leave the Finished screen only once that telemetry arrives —
+     * never optimistically on ACK or on a READY state. */
     if (current_state->machine_state_known &&
-        current_state->machine_state == HMI_MACHINE_READY &&
+        current_state->machine_state == HMI_MACHINE_HOMING_REQUIRED &&
         hmi_navigation_current() == HMI_SCREEN_FINISHED) {
         hmi_navigation_home();
         return;
@@ -144,8 +157,12 @@ void hmi_coordinator_on_command_accepted(hmi_command_t command)
         return;
     }
 
+    /* COMMAND_ACCEPTED must not clear pending for the job-lifecycle commands:
+     * their completion is defined by a telemetry snapshot, not the ACK. */
     if (expected != HMI_PENDING_PAUSE_JOB &&
         expected != HMI_PENDING_RESUME_JOB &&
+        expected != HMI_PENDING_ABORT_JOB &&
+        expected != HMI_PENDING_FINISH_JOB &&
         expected != HMI_PENDING_RESET_JOB) {
         hmi_pending_command_clear();
     }

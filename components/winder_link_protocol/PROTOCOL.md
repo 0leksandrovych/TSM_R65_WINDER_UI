@@ -81,13 +81,14 @@ HMI -> main controller:
 0x06  WINDER_LINK_MSG_ABORT_HOMING
 0x07  WINDER_LINK_MSG_PAUSE_JOB
 0x08  WINDER_LINK_MSG_RESUME_JOB
-0x09  WINDER_LINK_MSG_STOP_JOB
+0x09  WINDER_LINK_MSG_ABORT_JOB
 0x0A  WINDER_LINK_MSG_RESET_ALARM
 0x0B  WINDER_LINK_MSG_RESET_UNWOUND_COUNTER
 0x0C  WINDER_LINK_MSG_SET_SPEED_OVERRIDE
 0x0D  WINDER_LINK_MSG_APPLY_EDGE_TRIM
 0x0E  WINDER_LINK_MSG_GET_TELEMETRY
 0x0F  WINDER_LINK_MSG_RESET_JOB
+0x10  WINDER_LINK_MSG_FINISH_JOB
 ```
 
 Main controller -> HMI:
@@ -128,14 +129,31 @@ WINDER_LINK_MSG_START_HOMING
 WINDER_LINK_MSG_ABORT_HOMING
 WINDER_LINK_MSG_PAUSE_JOB
 WINDER_LINK_MSG_RESUME_JOB
-WINDER_LINK_MSG_STOP_JOB
+WINDER_LINK_MSG_ABORT_JOB
+WINDER_LINK_MSG_FINISH_JOB
 WINDER_LINK_MSG_RESET_JOB
 ```
 
+### Job lifecycle command availability
+
+`WINDER_LINK_MSG_ABORT_JOB` requests an immediate stop of the active job. It is
+available while the machine is in motion: `LINK_MACHINE_STATE_ACCELERATING`,
+`LINK_MACHINE_STATE_RUNNING`, or `LINK_MACHINE_STATE_STOPPING`. Its accepted
+outcome is `LINK_MACHINE_STATE_FINISHED`.
+
+`WINDER_LINK_MSG_FINISH_JOB` requests a graceful completion of a paused job. It
+is available only while the machine is in `LINK_MACHINE_STATE_PAUSED`. Its
+accepted outcome is `LINK_MACHINE_STATE_FINISHED`.
+
 `WINDER_LINK_MSG_RESET_JOB` requests the controller transition from
-`LINK_MACHINE_STATE_FINISHED` to `LINK_MACHINE_STATE_READY`. Its acceptance
-does not complete the transition; the following `STATE_SNAPSHOT` is the source
-of truth for the resulting machine state.
+`LINK_MACHINE_STATE_FINISHED` to `LINK_MACHINE_STATE_HOMING_REQUIRED`. Its
+acceptance does not complete the transition; the following `STATE_SNAPSHOT` is
+the source of truth for the resulting machine state.
+
+For all three commands, `COMMAND_ACCEPTED` only confirms that the controller
+accepted the command for processing. The machine-state transition is reported
+solely by a later `STATE_SNAPSHOT`. The HMI must not synthesize
+`FINISHED`, `PAUSED`, `RUNNING`, or `HOMING_REQUIRED` from an ACK alone.
 
 ## 7. ACK / REJECT Payload Contract
 

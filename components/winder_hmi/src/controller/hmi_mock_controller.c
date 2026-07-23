@@ -270,8 +270,8 @@ static bool command_for_message_type(hmi_controller_msg_type_t type,
     case HMI_CONTROLLER_MSG_RESUME_JOB:
         *out_command = HMI_CMD_RESUME_JOB;
         return true;
-    case HMI_CONTROLLER_MSG_STOP_JOB:
-        *out_command = HMI_CMD_STOP_JOB;
+    case HMI_CONTROLLER_MSG_ABORT_JOB:
+        *out_command = HMI_CMD_ABORT_JOB;
         return true;
     case HMI_CONTROLLER_MSG_RESET_JOB:
         *out_command = HMI_CMD_RESET_JOB;
@@ -466,10 +466,10 @@ static void execute_pending_operation(void)
     case MOCK_OP_STOP_JOB:
         if (s_state.machine_state == HMI_MACHINE_RUNNING ||
             s_state.machine_state == HMI_MACHINE_PAUSED) {
-            (void)winder_hmi_post_command_accepted(HMI_CMD_STOP_JOB);
+            (void)winder_hmi_post_command_accepted(HMI_CMD_ABORT_JOB);
             stop_run();
         } else {
-            (void)winder_hmi_post_command_rejected(HMI_CMD_STOP_JOB, "No active job to stop");
+            (void)winder_hmi_post_command_rejected(HMI_CMD_ABORT_JOB, "No active job to stop");
         }
         break;
     case MOCK_OP_RESET_JOB:
@@ -664,7 +664,7 @@ static bool mock_send(const hmi_controller_message_t *message, uint16_t seq, voi
     case HMI_CONTROLLER_MSG_RESUME_JOB:
         start_pending(MOCK_OP_RESUME_JOB, MOCK_SIMPLE_COMMAND_DELAY_MS, message);
         return true;
-    case HMI_CONTROLLER_MSG_STOP_JOB:
+    case HMI_CONTROLLER_MSG_ABORT_JOB:
         start_pending(MOCK_OP_STOP_JOB, MOCK_STOP_DELAY_MS, message);
         return true;
     case HMI_CONTROLLER_MSG_RESET_JOB:

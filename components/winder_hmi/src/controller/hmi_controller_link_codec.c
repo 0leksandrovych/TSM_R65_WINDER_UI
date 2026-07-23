@@ -378,8 +378,10 @@ bool hmi_controller_link_encode_message(
         return encode_empty(out_encoded, WINDER_LINK_MSG_PAUSE_JOB);
     case HMI_CONTROLLER_MSG_RESUME_JOB:
         return encode_empty(out_encoded, WINDER_LINK_MSG_RESUME_JOB);
-    case HMI_CONTROLLER_MSG_STOP_JOB:
-        return encode_empty(out_encoded, WINDER_LINK_MSG_STOP_JOB);
+    case HMI_CONTROLLER_MSG_ABORT_JOB:
+        return encode_empty(out_encoded, WINDER_LINK_MSG_ABORT_JOB);
+    case HMI_CONTROLLER_MSG_FINISH_JOB:
+        return encode_empty(out_encoded, WINDER_LINK_MSG_FINISH_JOB);
     case HMI_CONTROLLER_MSG_RESET_JOB:
         return encode_empty(out_encoded, WINDER_LINK_MSG_RESET_JOB);
     case HMI_CONTROLLER_MSG_RESET_ALARM:

@@ -59,13 +59,14 @@ typedef enum {
     WINDER_LINK_MSG_ABORT_HOMING          = 0x06,
     WINDER_LINK_MSG_PAUSE_JOB             = 0x07,
     WINDER_LINK_MSG_RESUME_JOB            = 0x08,
-    WINDER_LINK_MSG_STOP_JOB              = 0x09,
+    WINDER_LINK_MSG_ABORT_JOB             = 0x09,
     WINDER_LINK_MSG_RESET_ALARM           = 0x0A,
     WINDER_LINK_MSG_RESET_UNWOUND_COUNTER = 0x0B,
     WINDER_LINK_MSG_SET_SPEED_OVERRIDE    = 0x0C,
     WINDER_LINK_MSG_APPLY_EDGE_TRIM       = 0x0D,
     WINDER_LINK_MSG_GET_TELEMETRY         = 0x0E,
     WINDER_LINK_MSG_RESET_JOB             = 0x0F,
+    WINDER_LINK_MSG_FINISH_JOB            = 0x10,
 
     /* Controller → HMI responses / unsolicited messages */
     WINDER_LINK_MSG_PONG                  = 0x80,

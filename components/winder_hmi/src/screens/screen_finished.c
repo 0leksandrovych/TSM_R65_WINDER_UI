@@ -68,8 +68,8 @@ static void create_topbar(lv_obj_t *root)
 
     lv_obj_t *title = lv_label_create(topbar);
     lv_obj_add_style(title, &styles->topbar_title, 0);
-    lv_obj_set_style_text_color(title, hmi_palette_get()->green, 0);
-    lv_label_set_text(title, "JOB COMPLETE");
+    lv_obj_set_style_text_color(title, hmi_palette_get()->text, 0);
+    lv_label_set_text(title, "JOB FINISHED");
 
     lv_obj_t *spacer = lv_obj_create(topbar);
     lv_obj_remove_style_all(spacer);
@@ -136,10 +136,10 @@ void screen_finished_create(lv_obj_t *root)
     lv_obj_t *status_panel = create_panel(content, 330, "STATUS");
     s_screen.status_label = lv_label_create(status_panel);
     lv_obj_add_style(s_screen.status_label, &styles->status_text, 0);
-    lv_obj_set_style_text_color(s_screen.status_label, hmi_palette_get()->green, 0);
+    lv_obj_set_style_text_color(s_screen.status_label, hmi_palette_get()->text, 0);
     lv_label_set_long_mode(s_screen.status_label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(s_screen.status_label, LV_PCT(100));
-    lv_label_set_text(s_screen.status_label, "Winding completed successfully");
+    lv_label_set_text(s_screen.status_label, "Job finished");
 
     lv_obj_t *summary_panel = create_panel(content, 430, "SUMMARY");
     widget_stat_row_create(summary_panel, &s_screen.wound_length, "Wound length");
@@ -193,8 +193,10 @@ void screen_finished_update(const hmi_state_t *state)
         lv_label_set_text(s_screen.status_label, "Closing completed job...");
         lv_obj_set_style_text_color(s_screen.status_label, hmi_palette_get()->amber, 0);
     } else if (finished) {
-        lv_label_set_text(s_screen.status_label, "Winding completed successfully");
-        lv_obj_set_style_text_color(s_screen.status_label, hmi_palette_get()->green, 0);
+        /* Reason (target reached / manual finish / abort) is not carried by
+         * telemetry, so the copy stays neutral and does not imply success. */
+        lv_label_set_text(s_screen.status_label, "Job finished");
+        lv_obj_set_style_text_color(s_screen.status_label, hmi_palette_get()->text, 0);
     } else {
         lv_label_set_text(s_screen.status_label, "Waiting for controller");
         lv_obj_set_style_text_color(s_screen.status_label, hmi_palette_get()->text_dim, 0);

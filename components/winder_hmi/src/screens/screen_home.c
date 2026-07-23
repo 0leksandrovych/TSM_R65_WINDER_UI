@@ -25,7 +25,7 @@ typedef struct {
 
 typedef enum {
     HOME_NAV_JOBS = 0,
-    HOME_NAV_MACHINE,
+    HOME_NAV_HOMING,
     HOME_NAV_DIAGNOSTICS,
     HOME_NAV_SETTINGS,
 } home_nav_action_t;
@@ -240,8 +240,8 @@ static void nav_event_cb(lv_event_t *event)
     case HOME_NAV_JOBS:
         hmi_actions_open_jobs();
         break;
-    case HOME_NAV_MACHINE:
-        hmi_actions_placeholder_machine();
+    case HOME_NAV_HOMING:
+        hmi_actions_open_homing();
         break;
     case HOME_NAV_DIAGNOSTICS:
         hmi_actions_open_diagnostics();
@@ -250,8 +250,7 @@ static void nav_event_cb(lv_event_t *event)
         hmi_actions_open_settings();
         break;
     default:
-        hmi_actions_placeholder_machine();
-        break;
+        return;
     }
 }
 
@@ -377,8 +376,8 @@ void screen_home_create(lv_obj_t *root)
     lv_obj_clear_flag(nav, LV_OBJ_FLAG_SCROLLABLE);
 
     create_nav_button(nav, "Jobs", true, HOME_NAV_JOBS);
-    create_nav_button(nav, "Machine", true, HOME_NAV_MACHINE);
-    create_nav_button(nav, "Manual", false, HOME_NAV_MACHINE);
+    create_nav_button(nav, "HOMING", true, HOME_NAV_HOMING);
+    create_nav_button(nav, "Manual", false, HOME_NAV_HOMING);
     create_nav_button(nav, "Diagnostics", true, HOME_NAV_DIAGNOSTICS);
     create_nav_button(nav, "Settings", true, HOME_NAV_SETTINGS);
 }

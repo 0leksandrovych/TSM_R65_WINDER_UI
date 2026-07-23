@@ -2,6 +2,7 @@
 
 #include "hmi_model.h"
 #include "hmi_styles.h"
+#include "modal_confirm.h"
 #include "modal_numeric_keypad.h"
 #include "screen_diagnostics.h"
 #include "screen_confirm_start.h"
@@ -58,6 +59,7 @@ void hmi_navigation_show(hmi_screen_id_t screen_id)
     }
 
     modal_numeric_keypad_close();
+    modal_confirm_close();
     prepare_root();
     s_current_screen = screen_id;
 

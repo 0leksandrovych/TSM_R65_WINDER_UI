@@ -7,6 +7,7 @@
 #include "hmi_pending_command.h"
 #include "hmi_styles.h"
 #include "hmi_types.h"
+#include "modal_confirm.h"
 #include "widget_status_badge.h"
 
 typedef struct {
@@ -28,8 +29,10 @@ typedef struct {
     run_value_card_t applied_edge_offset;
     run_value_card_t shift_interval;
     lv_obj_t *feedback_label;
-    lv_obj_t *pause_button;
-    lv_obj_t *pause_label;
+    lv_obj_t *primary_button;   /* PAUSE / RESUME (also shows run-state text) */
+    lv_obj_t *primary_label;
+    lv_obj_t *secondary_button; /* ABORT / FINISH JOB */
+    lv_obj_t *secondary_label;
 } run_screen_t;
 
 static run_screen_t s_screen;
@@ -46,23 +49,54 @@ static void status_event_cb(lv_event_t *event)
     hmi_actions_open_diagnostics();
 }
 
-static void pause_event_cb(lv_event_t *event)
+static void primary_event_cb(lv_event_t *event)
 {
     (void)event;
-
-    if (hmi_pending_command_is_active()) {
-        return;
-    }
 
     const hmi_state_t *state = hmi_model_get_state();
     if (state == NULL || !state->machine_state_known) {
         return;
     }
 
+    /* Both actions re-check state and pending internally. */
     if (state->machine_state == HMI_MACHINE_RUNNING) {
         hmi_actions_pause_job();
     } else if (state->machine_state == HMI_MACHINE_PAUSED) {
         hmi_actions_resume_job();
+    }
+}
+
+static void finish_confirm_cb(void *user_ctx)
+{
+    (void)user_ctx;
+    hmi_actions_finish_job();
+}
+
+static void secondary_event_cb(lv_event_t *event)
+{
+    (void)event;
+
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL || !state->machine_state_known) {
+        return;
+    }
+
+    if (state->machine_state == HMI_MACHINE_PAUSED) {
+        /* FINISH JOB always confirms first; the job cannot be resumed after. */
+        const modal_confirm_config_t config = {
+            .title = "Finish current job?",
+            .body = "The current measured length and statistics will be saved. "
+                    "The job cannot be resumed afterward.",
+            .cancel_text = "CANCEL",
+            .confirm_text = "FINISH JOB",
+            .confirm_role = HMI_COLOR_AMBER,
+            .confirm_cb = finish_confirm_cb,
+        };
+        modal_confirm_open(&config);
+    } else {
+        /* ABORT is destructive but immediate — no confirmation. State and
+         * pending gating live entirely inside hmi_actions_abort_job(). */
+        hmi_actions_abort_job();
     }
 }
 
@@ -315,11 +349,14 @@ void screen_run_create(lv_obj_t *root)
     lv_obj_set_style_pad_column(buttons, 12, 0);
     lv_obj_clear_flag(buttons, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_screen.pause_button = create_button(buttons, "PAUSE", 320, HMI_COLOR_AMBER, pause_event_cb);
-    s_screen.pause_label = lv_obj_get_child(s_screen.pause_button, 0);
+    s_screen.primary_button = create_button(buttons, "PAUSE", 226, HMI_COLOR_AMBER, primary_event_cb);
+    s_screen.primary_label = lv_obj_get_child(s_screen.primary_button, 0);
+    s_screen.secondary_button = create_button(buttons, "ABORT", 226, HMI_COLOR_RED, secondary_event_cb);
+    s_screen.secondary_label = lv_obj_get_child(s_screen.secondary_button, 0);
     create_home_button(buttons);
 
-    set_button_dimmed(s_screen.pause_button, true);
+    set_button_dimmed(s_screen.primary_button, true);
+    set_button_dimmed(s_screen.secondary_button, true);
 }
 
 void screen_run_update(const hmi_state_t *state)
@@ -334,6 +371,8 @@ void screen_run_update(const hmi_state_t *state)
     bool any_pending = hmi_pending_command_is_active();
     bool pause_pending = pending == HMI_PENDING_PAUSE_JOB;
     bool resume_pending = pending == HMI_PENDING_RESUME_JOB;
+    bool abort_pending = pending == HMI_PENDING_ABORT_JOB;
+    bool finish_pending = pending == HMI_PENDING_FINISH_JOB;
     bool machine_accelerating = state->machine_state_known &&
                                 state->machine_state == HMI_MACHINE_ACCELERATING;
     bool machine_running = state->machine_state_known &&
@@ -419,31 +458,75 @@ void screen_run_update(const hmi_state_t *state)
         (unsigned long)state->shift_every_layers);
     value_card_set(&s_screen.shift_interval, value, HMI_COLOR_NEUTRAL);
 
-    if (s_screen.pause_label != NULL) {
-        const char *button_text = "PAUSE";
-        hmi_color_role_t button_color = HMI_COLOR_AMBER;
-        bool button_enabled = false;
+    /* Primary button: PAUSE / RESUME when actionable, otherwise a disabled
+     * run-state indicator. STOPPING shows "STOPPING..." — never "FINISHING..." —
+     * because the STOPPING machine state is also used while pausing. */
+    if (s_screen.primary_label != NULL) {
+        const char *text = "PAUSE";
+        hmi_color_role_t color = HMI_COLOR_AMBER;
+        bool enabled = false;
 
-        if (machine_accelerating) {
-            button_text = "STARTING...";
-        } else if (machine_stopping) {
-            button_text = "FINISHING...";
-        } else if (pause_pending) {
-            button_text = "PAUSING...";
+        if (pause_pending) {
+            text = "PAUSING...";
         } else if (resume_pending) {
-            button_text = "RESUMING...";
-            button_color = HMI_COLOR_GREEN;
-        } else if (machine_paused) {
-            button_text = "RESUME";
-            button_color = HMI_COLOR_GREEN;
-            button_enabled = !any_pending;
+            text = "RESUMING...";
+            color = HMI_COLOR_GREEN;
         } else if (machine_running) {
-            button_enabled = !any_pending;
+            text = "PAUSE";
+            enabled = !any_pending;
+        } else if (machine_paused) {
+            text = "RESUME";
+            color = HMI_COLOR_GREEN;
+            enabled = !any_pending;
+        } else if (machine_accelerating) {
+            text = "STARTING...";
+        } else if (machine_stopping) {
+            text = "STOPPING...";
         }
 
-        lv_label_set_text(s_screen.pause_label, button_text);
-        lv_obj_center(s_screen.pause_label);
-        set_button_enabled_color(s_screen.pause_button, button_color);
-        set_button_dimmed(s_screen.pause_button, !button_enabled);
+        lv_label_set_text(s_screen.primary_label, text);
+        lv_obj_center(s_screen.primary_label);
+        set_button_enabled_color(s_screen.primary_button, color);
+        set_button_dimmed(s_screen.primary_button, !enabled);
+    }
+
+    /* Secondary button: destructive ABORT while in motion, or FINISH JOB while
+     * PAUSED (ABORT is hidden there). Repeated presses are blocked by dimming;
+     * the exception is STOPPING, where ABORT stays available so a decelerating
+     * PAUSE can still be escalated to an abort. */
+    if (s_screen.secondary_label != NULL) {
+        const char *text = "ABORT";
+        hmi_color_role_t color = HMI_COLOR_RED;
+        bool enabled = false;
+        bool visible = true;
+
+        if (abort_pending) {
+            text = "ABORTING...";
+        } else if (finish_pending) {
+            text = "FINISHING...";
+            color = HMI_COLOR_AMBER;
+        } else if (machine_paused) {
+            text = "FINISH JOB";
+            color = HMI_COLOR_AMBER;
+            enabled = !any_pending;
+        } else if (machine_accelerating || machine_running) {
+            text = "ABORT";
+            enabled = !any_pending;
+        } else if (machine_stopping) {
+            text = "ABORT";
+            enabled = !any_pending || pause_pending;
+        } else {
+            visible = false;
+        }
+
+        lv_label_set_text(s_screen.secondary_label, text);
+        lv_obj_center(s_screen.secondary_label);
+        set_button_enabled_color(s_screen.secondary_button, color);
+        set_button_dimmed(s_screen.secondary_button, !enabled);
+        if (visible) {
+            lv_obj_clear_flag(s_screen.secondary_button, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_screen.secondary_button, LV_OBJ_FLAG_HIDDEN);
+        }
     }
 }

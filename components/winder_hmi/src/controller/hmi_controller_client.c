@@ -55,7 +55,9 @@ static const command_binding_t s_command_bindings[] = {
       CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
     { HMI_CMD_RESUME_JOB,            HMI_CONTROLLER_MSG_RESUME_JOB,
       CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
-    { HMI_CMD_STOP_JOB,              HMI_CONTROLLER_MSG_STOP_JOB,
+    { HMI_CMD_ABORT_JOB,             HMI_CONTROLLER_MSG_ABORT_JOB,
+      CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_FINISH_JOB,            HMI_CONTROLLER_MSG_FINISH_JOB,
       CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
     { HMI_CMD_RESET_JOB,             HMI_CONTROLLER_MSG_RESET_JOB,
       CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
@@ -172,8 +174,11 @@ static bool command_for_wire_type(winder_link_msg_type_t type, hmi_command_t *ou
     case WINDER_LINK_MSG_RESUME_JOB:
         *out_command = HMI_CMD_RESUME_JOB;
         return true;
-    case WINDER_LINK_MSG_STOP_JOB:
-        *out_command = HMI_CMD_STOP_JOB;
+    case WINDER_LINK_MSG_ABORT_JOB:
+        *out_command = HMI_CMD_ABORT_JOB;
+        return true;
+    case WINDER_LINK_MSG_FINISH_JOB:
+        *out_command = HMI_CMD_FINISH_JOB;
         return true;
     case WINDER_LINK_MSG_RESET_JOB:
         *out_command = HMI_CMD_RESET_JOB;

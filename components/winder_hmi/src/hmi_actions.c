@@ -168,10 +168,22 @@ void hmi_actions_placeholder_jobs(void)
 
 void hmi_actions_start_homing(void)
 {
+    /* START_HOMING is only meaningful when the machine has no travel references
+     * yet (HOMING_REQUIRED) or is idle and can re-home (READY). It must never be
+     * sent during an active job, stopping, finished, alarm, or active homing. */
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL ||
+        !state->machine_state_known ||
+        (state->machine_state != HMI_MACHINE_HOMING_REQUIRED &&
+         state->machine_state != HMI_MACHINE_READY) ||
+        hmi_pending_command_is_active() ||
+        !hmi_command_bus_emit(HMI_CMD_START_HOMING, NULL)) {
+        return;
+    }
+
     hmi_pending_command_set(HMI_PENDING_START_HOMING, "Starting homing...",
                             hmi_now_ms(), HMI_PENDING_START_TIMEOUT_MS);
-    hmi_navigation_update(hmi_model_get_state());
-    hmi_command_bus_emit(HMI_CMD_START_HOMING, NULL);
+    hmi_navigation_update(state);
 }
 
 void hmi_actions_abort_homing(void)
@@ -222,12 +234,68 @@ void hmi_actions_resume_job(void)
     hmi_navigation_update(state);
 }
 
-void hmi_actions_stop_job(void)
+void hmi_actions_abort_job(void)
 {
-    hmi_pending_command_set(HMI_PENDING_STOP_JOB, "Stopping...",
+    /* ABORT is only valid while the machine is in motion. FINISHED comes back
+     * through telemetry; the HMI never synthesizes it locally. */
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL || !state->machine_state_known) {
+        return;
+    }
+
+    bool abortable = state->machine_state == HMI_MACHINE_ACCELERATING ||
+                     state->machine_state == HMI_MACHINE_RUNNING ||
+                     state->machine_state == HMI_MACHINE_STOPPING;
+    if (!abortable) {
+        return;
+    }
+
+    hmi_pending_command_t pending = hmi_pending_command_get();
+    bool pending_active = hmi_pending_command_is_active();
+
+    /* Do not resend ABORT while one is already in flight. */
+    if (pending_active && pending == HMI_PENDING_ABORT_JOB) {
+        return;
+    }
+
+    /* The only pending command ABORT is allowed to preempt is a PAUSE that is
+     * still decelerating (machine reports STOPPING). Any other in-flight command
+     * blocks ABORT so pending state is never arbitrarily overwritten. */
+    if (pending_active) {
+        bool preempt_pause = state->machine_state == HMI_MACHINE_STOPPING &&
+                             pending == HMI_PENDING_PAUSE_JOB;
+        if (!preempt_pause) {
+            return;
+        }
+    }
+
+    if (!hmi_command_bus_emit(HMI_CMD_ABORT_JOB, NULL)) {
+        return;
+    }
+
+    /* Only after a successful emit do we mark ABORT pending (replacing a
+     * preempted PAUSE pending, if any). Cleared by telemetry FINISHED. */
+    hmi_pending_command_set(HMI_PENDING_ABORT_JOB, "Aborting job...",
                             hmi_now_ms(), HMI_PENDING_STOP_TIMEOUT_MS);
-    hmi_navigation_update(hmi_model_get_state());
-    hmi_command_bus_emit(HMI_CMD_STOP_JOB, NULL);
+    hmi_navigation_update(state);
+}
+
+void hmi_actions_finish_job(void)
+{
+    /* FINISH gracefully ends a paused job. It requires a clean PAUSED state and
+     * no other pending command. FINISHED is confirmed only by telemetry. */
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL ||
+        !state->machine_state_known ||
+        state->machine_state != HMI_MACHINE_PAUSED ||
+        hmi_pending_command_is_active() ||
+        !hmi_command_bus_emit(HMI_CMD_FINISH_JOB, NULL)) {
+        return;
+    }
+
+    hmi_pending_command_set(HMI_PENDING_FINISH_JOB, "Finishing job...",
+                            hmi_now_ms(), HMI_PENDING_STOP_TIMEOUT_MS);
+    hmi_navigation_update(state);
 }
 
 void hmi_actions_reset_job(void)
