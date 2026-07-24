@@ -15,7 +15,7 @@
 
 /* Internal event queue capacity.
  * Fixed static allocation via xQueueCreateStatic — never resized at runtime. */
-#define HMI_EVENT_QUEUE_LENGTH          12U
+#define HMI_EVENT_QUEUE_LENGTH          25U
 
 /* Maximum internal events processed per LVGL tick.
  * Prevents a burst of queued events from monopolizing the UI context;
@@ -29,7 +29,7 @@
  *   [2] optional test hook
  *   [3] spare
  * Fixed static array — no dynamic allocation. */
-#define HMI_COMMAND_BUS_MAX_LISTENERS   4U
+#define HMI_COMMAND_BUS_MAX_LISTENERS   8U
 
 /* Pending command timeout constants (milliseconds).
  * Used to detect lost ACK/REJECT responses before UART is implemented.

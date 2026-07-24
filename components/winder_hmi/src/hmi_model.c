@@ -17,6 +17,16 @@ void hmi_model_init(void)
     s_state.target_length_known = false;
     s_state.progress_percent = 0.0f;
     s_state.carriage_position_mm = 0.0f;
+    s_state.carriage_reference_position = HMI_CARRIAGE_POSITION_UNKNOWN;
+    s_state.carriage_reference_position_known = false;
+    s_state.homing_alarm_code = 0U;
+    s_state.homing_alarm_code_known = false;
+    s_state.left_edge_sample_count = 0U;
+    s_state.left_edge_sample_count_known = false;
+    s_state.right_edge_sample_count = 0U;
+    s_state.right_edge_sample_count_known = false;
+    s_state.homing_sample_target_count = 0U;
+    s_state.homing_sample_target_count_known = false;
     s_state.travel_range_mm = 0.0;
     s_state.travel_range_known = false;
     s_state.job_master_speed_rps = 0.0f;

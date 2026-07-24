@@ -3,6 +3,7 @@ idf_component_register(
         "src/winder_hmi.c"
         "src/hmi_coordinator.c"
         "src/hmi_model.c"
+        "src/hmi_state_helpers.c"
         "src/hmi_command_bus.c"
         "src/hmi_pending_command.c"
         "src/hmi_event_queue.c"

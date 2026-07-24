@@ -50,22 +50,6 @@ static void start_event_cb(lv_event_t *event)
     hmi_actions_open_confirm_start();
 }
 
-static bool machine_is_homing(hmi_machine_state_t state)
-{
-    switch (state) {
-    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
-    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
-    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
-    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
-    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
-    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
-    case HMI_MACHINE_HOMING_COMPLETING:
-        return true;
-    default:
-        return false;
-    }
-}
-
 static const char *homing_text(const hmi_state_t *state)
 {
     if (state == NULL || !state->machine_state_known) {
@@ -74,7 +58,7 @@ static const char *homing_text(const hmi_state_t *state)
     if (state->machine_state == HMI_MACHINE_HOMING_REQUIRED) {
         return "REQUIRED";
     }
-    if (machine_is_homing(state->machine_state)) {
+    if (hmi_machine_state_is_homing(state->machine_state)) {
         return "IN PROGRESS";
     }
     return state->machine_state == HMI_MACHINE_ALARM ? "UNKNOWN" : "OK";
@@ -84,7 +68,7 @@ static hmi_color_role_t homing_color(const hmi_state_t *state)
 {
     if (state != NULL && state->machine_state_known &&
         state->machine_state != HMI_MACHINE_HOMING_REQUIRED &&
-        !machine_is_homing(state->machine_state) &&
+        !hmi_machine_state_is_homing(state->machine_state) &&
         state->machine_state != HMI_MACHINE_ALARM) {
         return HMI_COLOR_GREEN;
     }

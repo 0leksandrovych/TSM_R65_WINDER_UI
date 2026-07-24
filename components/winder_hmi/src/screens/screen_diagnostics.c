@@ -20,6 +20,11 @@ typedef struct {
     hmi_stat_row_t wound_length_row;
     hmi_stat_row_t completed_layers_row;
     hmi_stat_row_t last_error_row;
+    hmi_stat_row_t homing_alarm_row;
+    hmi_stat_row_t carriage_position_row;
+    hmi_stat_row_t left_samples_row;
+    hmi_stat_row_t right_samples_row;
+    hmi_stat_row_t sample_target_row;
 } diagnostics_screen_t;
 
 static diagnostics_screen_t s_screen;
@@ -69,20 +74,26 @@ static const char *machine_state_text(const hmi_state_t *state)
     switch (state->machine_state) {
     case HMI_MACHINE_HOMING_REQUIRED:
         return "Homing required";
-    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
-        return "Searching right optical reference";
-    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
-        return "Backing off right optical reference";
-    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
-        return "Searching left optical reference";
-    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
-        return "Backing off left optical reference";
-    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
-        return "Measuring travel range";
-    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
-        return "Applying working offset";
-    case HMI_MACHINE_HOMING_COMPLETING:
-        return "Completing homing";
+    case HMI_MACHINE_HOMING_SEARCHING_LEFT:
+        return "Searching left edge";
+    case HMI_MACHINE_HOMING_LEFT_BACKOFF:
+        return "Left reference backoff";
+    case HMI_MACHINE_HOMING_LEFT_MEASUREMENT:
+        return "Measuring left edge";
+    case HMI_MACHINE_HOMING_MASTER_POSITIONING:
+        return "Positioning master";
+    case HMI_MACHINE_HOMING_SEARCHING_RIGHT:
+        return "Searching right edge";
+    case HMI_MACHINE_HOMING_RIGHT_BACKOFF:
+        return "Right reference backoff";
+    case HMI_MACHINE_HOMING_RIGHT_MEASUREMENT:
+        return "Measuring right edge";
+    case HMI_MACHINE_HOMING_WAITING_NEXT_MEASUREMENT:
+        return "Waiting next measurement";
+    case HMI_MACHINE_HOMING_WAITING_ZERO_COMMAND:
+        return "Waiting move to zero";
+    case HMI_MACHINE_HOMING_MOVING_TO_ZERO:
+        return "Moving to calibrated zero";
     case HMI_MACHINE_READY:
         return "Ready";
     case HMI_MACHINE_ACCELERATING:
@@ -97,6 +108,8 @@ static const char *machine_state_text(const hmi_state_t *state)
         return "Finished";
     case HMI_MACHINE_ALARM:
         return "Alarm";
+    case HMI_MACHINE_POSITIONING:
+        return "Positioning carriage";
     default:
         return "Unknown";
     }
@@ -108,6 +121,13 @@ static hmi_color_role_t machine_state_color(const hmi_state_t *state)
         return HMI_COLOR_DIM;
     }
 
+    if (hmi_machine_state_is_homing(state->machine_state)) {
+        return HMI_COLOR_BLUE;
+    }
+    if (hmi_machine_state_is_positioning(state->machine_state)) {
+        return HMI_COLOR_AMBER;
+    }
+
     switch (state->machine_state) {
     case HMI_MACHINE_ALARM:
         return HMI_COLOR_RED;
@@ -115,14 +135,6 @@ static hmi_color_role_t machine_state_color(const hmi_state_t *state)
     case HMI_MACHINE_STOPPING:
     case HMI_MACHINE_HOMING_REQUIRED:
         return HMI_COLOR_AMBER;
-    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
-    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
-    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
-    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
-    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
-    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
-    case HMI_MACHINE_HOMING_COMPLETING:
-        return HMI_COLOR_BLUE;
     case HMI_MACHINE_READY:
     case HMI_MACHINE_ACCELERATING:
     case HMI_MACHINE_RUNNING:
@@ -179,12 +191,14 @@ void screen_diagnostics_create(lv_obj_t *root)
     lv_obj_remove_style_all(content);
     lv_obj_set_size(content, LV_PCT(100), HMI_DISPLAY_HEIGHT - HMI_TOPBAR_HEIGHT);
     lv_obj_set_style_pad_all(content, 14, 0);
+    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_ROW);
+    lv_obj_set_style_pad_column(content, 12, 0);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *panel = lv_obj_create(content);
     lv_obj_remove_style_all(panel);
     lv_obj_add_style(panel, &styles->panel, 0);
-    lv_obj_set_size(panel, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_size(panel, 374, LV_PCT(100));
     lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(panel, 8, 0);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
@@ -208,6 +222,25 @@ void screen_diagnostics_create(lv_obj_t *root)
     widget_stat_row_create(panel, &s_screen.wound_length_row, "Wound length");
     widget_stat_row_create(panel, &s_screen.completed_layers_row, "Completed layers");
     widget_stat_row_create(panel, &s_screen.last_error_row, "Last error");
+
+    lv_obj_t *homing_panel = lv_obj_create(content);
+    lv_obj_remove_style_all(homing_panel);
+    lv_obj_add_style(homing_panel, &styles->panel, 0);
+    lv_obj_set_size(homing_panel, 374, LV_PCT(100));
+    lv_obj_set_flex_flow(homing_panel, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_style_pad_row(homing_panel, 8, 0);
+    lv_obj_clear_flag(homing_panel, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *homing_title = lv_label_create(homing_panel);
+    lv_obj_add_style(homing_title, &styles->panel_title, 0);
+    lv_label_set_text(homing_title, "HOMING READ MODEL");
+
+    widget_stat_row_create(homing_panel, &s_screen.homing_alarm_row, "Homing alarm");
+    widget_stat_row_create(homing_panel, &s_screen.carriage_position_row, "Carriage reference");
+    widget_stat_row_create(homing_panel, &s_screen.left_samples_row, "Left edge samples");
+    widget_stat_row_create(homing_panel, &s_screen.right_samples_row, "Right edge samples");
+    widget_stat_row_create(homing_panel, &s_screen.sample_target_row, "Sample target");
+    lv_obj_set_width(s_screen.homing_alarm_row.value, 220);
 }
 
 void screen_diagnostics_update(const hmi_state_t *state)
@@ -216,7 +249,8 @@ void screen_diagnostics_update(const hmi_state_t *state)
         return;
     }
 
-    char value[48];
+    char value[96];
+    char alarm_buffer[64];
     bool active_job = state->machine_state_known &&
                       (state->machine_state == HMI_MACHINE_ACCELERATING ||
                        state->machine_state == HMI_MACHINE_RUNNING ||
@@ -266,6 +300,48 @@ void screen_diagnostics_update(const hmi_state_t *state)
 
     snprintf(value, sizeof(value), "%lu", (unsigned long)state->current_layer);
     widget_stat_row_set_value(&s_screen.completed_layers_row, value, HMI_COLOR_NEUTRAL);
+
+    if (state->homing_alarm_code_known) {
+        const char *alarm_text = hmi_homing_alarm_text(
+            state->homing_alarm_code, alarm_buffer, sizeof(alarm_buffer));
+        snprintf(value, sizeof(value), "%lu: %s",
+                 (unsigned long)state->homing_alarm_code, alarm_text);
+        widget_stat_row_set_value(
+            &s_screen.homing_alarm_row, value,
+            state->homing_alarm_code == 0U ? HMI_COLOR_GREEN : HMI_COLOR_RED);
+    } else {
+        widget_stat_row_set_value(&s_screen.homing_alarm_row, "--", HMI_COLOR_DIM);
+    }
+
+    widget_stat_row_set_value(
+        &s_screen.carriage_position_row,
+        state->carriage_reference_position_known ?
+            hmi_carriage_reference_position_text(state->carriage_reference_position) : "--",
+        state->carriage_reference_position_known ? HMI_COLOR_NEUTRAL : HMI_COLOR_DIM);
+
+    if (state->left_edge_sample_count_known) {
+        snprintf(value, sizeof(value), "%lu",
+                 (unsigned long)state->left_edge_sample_count);
+        widget_stat_row_set_value(&s_screen.left_samples_row, value, HMI_COLOR_NEUTRAL);
+    } else {
+        widget_stat_row_set_value(&s_screen.left_samples_row, "--", HMI_COLOR_DIM);
+    }
+
+    if (state->right_edge_sample_count_known) {
+        snprintf(value, sizeof(value), "%lu",
+                 (unsigned long)state->right_edge_sample_count);
+        widget_stat_row_set_value(&s_screen.right_samples_row, value, HMI_COLOR_NEUTRAL);
+    } else {
+        widget_stat_row_set_value(&s_screen.right_samples_row, "--", HMI_COLOR_DIM);
+    }
+
+    if (state->homing_sample_target_count_known) {
+        snprintf(value, sizeof(value), "%lu",
+                 (unsigned long)state->homing_sample_target_count);
+        widget_stat_row_set_value(&s_screen.sample_target_row, value, HMI_COLOR_NEUTRAL);
+    } else {
+        widget_stat_row_set_value(&s_screen.sample_target_row, "--", HMI_COLOR_DIM);
+    }
 
     widget_stat_row_set_value(
         &s_screen.last_error_row,

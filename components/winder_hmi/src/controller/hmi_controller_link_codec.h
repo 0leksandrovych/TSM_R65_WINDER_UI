@@ -36,6 +36,21 @@ typedef struct {
     bool machine_state_present;
     link_machine_state_t machine_state;
 
+    bool homing_alarm_code_present;
+    uint32_t homing_alarm_code;
+
+    bool carriage_reference_position_present;
+    link_carriage_reference_position_t carriage_reference_position;
+
+    bool left_edge_sample_count_present;
+    uint32_t left_edge_sample_count;
+
+    bool right_edge_sample_count_present;
+    uint32_t right_edge_sample_count;
+
+    bool homing_sample_target_count_present;
+    uint32_t homing_sample_target_count;
+
     bool travel_range_mm_present;
     double travel_range_mm;
 

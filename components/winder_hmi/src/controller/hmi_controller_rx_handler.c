@@ -153,6 +153,34 @@ static void handle_state_snapshot(
                 (int)snapshot->machine_state);
         }
     }
+    if (snapshot->carriage_reference_position_present) {
+        if (hmi_link_state_mapper_carriage_position(
+                snapshot->carriage_reference_position,
+                &state.carriage_reference_position)) {
+            state.carriage_reference_position_known = true;
+        } else {
+            ESP_LOGW(
+                TAG,
+                "Ignoring unsupported carriage reference position: %d",
+                (int)snapshot->carriage_reference_position);
+        }
+    }
+    if (snapshot->homing_alarm_code_present) {
+        state.homing_alarm_code = snapshot->homing_alarm_code;
+        state.homing_alarm_code_known = true;
+    }
+    if (snapshot->left_edge_sample_count_present) {
+        state.left_edge_sample_count = snapshot->left_edge_sample_count;
+        state.left_edge_sample_count_known = true;
+    }
+    if (snapshot->right_edge_sample_count_present) {
+        state.right_edge_sample_count = snapshot->right_edge_sample_count;
+        state.right_edge_sample_count_known = true;
+    }
+    if (snapshot->homing_sample_target_count_present) {
+        state.homing_sample_target_count = snapshot->homing_sample_target_count;
+        state.homing_sample_target_count_known = true;
+    }
     if (snapshot->job_master_speed_present) {
         state.job_master_speed_rps = (float)snapshot->job_master_speed;
         state.job_master_speed_known = true;

@@ -5,17 +5,16 @@
 
 static const char *machine_state_text(hmi_machine_state_t state)
 {
+    if (hmi_machine_state_is_homing(state)) {
+        return "HOMING";
+    }
+    if (hmi_machine_state_is_positioning(state)) {
+        return "POSITIONING";
+    }
+
     switch (state) {
     case HMI_MACHINE_HOMING_REQUIRED:
         return "HOMING REQUIRED";
-    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
-    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
-    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
-    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
-    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
-    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
-    case HMI_MACHINE_HOMING_COMPLETING:
-        return "HOMING";
     case HMI_MACHINE_READY:
         return "READY";
     case HMI_MACHINE_ACCELERATING:
@@ -39,6 +38,11 @@ static lv_style_t *badge_style_for_state(hmi_machine_state_t state)
 {
     hmi_styles_t *styles = hmi_styles_get();
 
+    if (hmi_machine_state_is_homing(state) ||
+        hmi_machine_state_is_positioning(state)) {
+        return &styles->badge_amber;
+    }
+
     switch (state) {
     case HMI_MACHINE_READY:
     case HMI_MACHINE_ACCELERATING:
@@ -46,13 +50,6 @@ static lv_style_t *badge_style_for_state(hmi_machine_state_t state)
     case HMI_MACHINE_FINISHED:
         return &styles->badge_green;
     case HMI_MACHINE_HOMING_REQUIRED:
-    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
-    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
-    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
-    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
-    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
-    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
-    case HMI_MACHINE_HOMING_COMPLETING:
     case HMI_MACHINE_PAUSED:
     case HMI_MACHINE_STOPPING:
         return &styles->badge_amber;

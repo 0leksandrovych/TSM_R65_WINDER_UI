@@ -15,9 +15,16 @@ typedef struct {
     lv_obj_t *step_label;
     lv_obj_t *message_label;
     hmi_stat_row_t state_row;
+    hmi_stat_row_t left_samples_row;
+    hmi_stat_row_t right_samples_row;
+    hmi_stat_row_t carriage_row;
+    hmi_stat_row_t alarm_row;
     hmi_stat_row_t travel_row;
     lv_obj_t *start_button;
     lv_obj_t *start_label;
+    lv_obj_t *next_button;
+    lv_obj_t *zero_button;
+    lv_obj_t *left_button;
     lv_obj_t *abort_button;
     lv_obj_t *continue_label;
 } homing_screen_t;
@@ -42,6 +49,24 @@ static void abort_event_cb(lv_event_t *event)
     hmi_actions_abort_homing();
 }
 
+static void next_event_cb(lv_event_t *event)
+{
+    (void)event;
+    hmi_actions_homing_next_measurement();
+}
+
+static void zero_event_cb(lv_event_t *event)
+{
+    (void)event;
+    hmi_actions_move_carriage_to_zero();
+}
+
+static void left_event_cb(lv_event_t *event)
+{
+    (void)event;
+    hmi_actions_move_carriage_to_left_edge();
+}
+
 static lv_obj_t *create_button(lv_obj_t *parent, const char *text, hmi_color_role_t role, lv_event_cb_t cb)
 {
     hmi_styles_t *styles = hmi_styles_get();
@@ -49,16 +74,32 @@ static lv_obj_t *create_button(lv_obj_t *parent, const char *text, hmi_color_rol
     lv_obj_t *button = lv_btn_create(parent);
     lv_obj_remove_style_all(button);
     lv_obj_add_style(button, &styles->primary_button, 0);
-    lv_obj_set_size(button, 190, 56);
+    lv_obj_set_size(button, 140, 56);
     lv_obj_set_style_bg_color(button, hmi_color_for_role(role), 0);
     lv_obj_set_style_bg_color(button, hmi_palette_get()->panel_secondary, LV_STATE_PRESSED);
     lv_obj_add_event_cb(button, cb, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t *label = lv_label_create(button);
     lv_label_set_text(label, text);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(label, 128);
+    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_center(label);
 
     return button;
+}
+
+static void set_button_visible(lv_obj_t *button, bool visible)
+{
+    if (button == NULL) {
+        return;
+    }
+
+    if (visible) {
+        lv_obj_clear_flag(button, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(button, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 static void set_button_enabled(lv_obj_t *button, bool enabled, hmi_color_role_t role)
@@ -114,22 +155,6 @@ static void create_topbar(lv_obj_t *root)
     widget_status_badge_create(topbar, &s_screen.badge);
 }
 
-static bool homing_is_active(hmi_machine_state_t state)
-{
-    switch (state) {
-    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
-    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
-    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
-    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
-    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
-    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
-    case HMI_MACHINE_HOMING_COMPLETING:
-        return true;
-    default:
-        return false;
-    }
-}
-
 static const char *homing_stage_text(const hmi_state_t *state)
 {
     if (state == NULL || !state->machine_state_known) {
@@ -139,22 +164,30 @@ static const char *homing_stage_text(const hmi_state_t *state)
     switch (state->machine_state) {
     case HMI_MACHINE_HOMING_REQUIRED:
         return "Homing required";
-    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
-        return "Searching right optical reference";
-    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
-        return "Backing off right optical reference";
-    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
-        return "Searching left optical reference";
-    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
-        return "Backing off left optical reference";
-    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
-        return "Measuring travel range";
-    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
-        return "Applying working offset";
-    case HMI_MACHINE_HOMING_COMPLETING:
-        return "Completing homing";
+    case HMI_MACHINE_HOMING_SEARCHING_LEFT:
+        return "Searching left edge";
+    case HMI_MACHINE_HOMING_LEFT_BACKOFF:
+        return "Establishing precise left reference";
+    case HMI_MACHINE_HOMING_LEFT_MEASUREMENT:
+        return "Measuring left edge";
+    case HMI_MACHINE_HOMING_MASTER_POSITIONING:
+        return "Positioning master";
+    case HMI_MACHINE_HOMING_SEARCHING_RIGHT:
+        return "Searching right edge";
+    case HMI_MACHINE_HOMING_RIGHT_BACKOFF:
+        return "Establishing precise right reference";
+    case HMI_MACHINE_HOMING_RIGHT_MEASUREMENT:
+        return "Measuring right edge";
+    case HMI_MACHINE_HOMING_WAITING_NEXT_MEASUREMENT:
+        return "Waiting for next measurement";
+    case HMI_MACHINE_HOMING_WAITING_ZERO_COMMAND:
+        return "Waiting for move to zero";
+    case HMI_MACHINE_HOMING_MOVING_TO_ZERO:
+        return "Moving to calibrated zero";
     case HMI_MACHINE_READY:
         return "Homing completed successfully";
+    case HMI_MACHINE_POSITIONING:
+        return "Positioning carriage";
     default:
         return "Homing unavailable in current state";
     }
@@ -214,9 +247,11 @@ void screen_homing_create(lv_obj_t *root)
     lv_label_set_text(title, "HOMING STATUS");
 
     widget_stat_row_create(panel, &s_screen.state_row, "Current stage");
+    widget_stat_row_create(panel, &s_screen.left_samples_row, "Left measurements");
+    widget_stat_row_create(panel, &s_screen.right_samples_row, "Right measurements");
+    widget_stat_row_create(panel, &s_screen.carriage_row, "Carriage reference");
+    widget_stat_row_create(panel, &s_screen.alarm_row, "Homing alarm");
     widget_stat_row_create(panel, &s_screen.travel_row, "Travel range");
-    lv_obj_set_flex_grow(s_screen.state_row.root, 1);
-    lv_obj_set_flex_grow(s_screen.travel_row.root, 1);
 
     lv_obj_t *buttons = lv_obj_create(root);
     lv_obj_remove_style_all(buttons);
@@ -228,9 +263,31 @@ void screen_homing_create(lv_obj_t *root)
 
     s_screen.start_button = create_button(buttons, "START HOMING", HMI_COLOR_BLUE, start_event_cb);
     s_screen.start_label = lv_obj_get_child(s_screen.start_button, 0);
+    s_screen.next_button = create_button(buttons, "NEXT MEASUREMENT", HMI_COLOR_BLUE, next_event_cb);
+    s_screen.zero_button = create_button(buttons, "MOVE TO ZERO", HMI_COLOR_BLUE, zero_event_cb);
+    s_screen.left_button = create_button(buttons, "MOVE TO LEFT EDGE", HMI_COLOR_BLUE, left_event_cb);
     s_screen.abort_button = create_button(buttons, "ABORT HOMING", HMI_COLOR_RED, abort_event_cb);
     lv_obj_t *continue_button = create_button(buttons, "BACK HOME", HMI_COLOR_DIM, back_event_cb);
     s_screen.continue_label = lv_obj_get_child(continue_button, 0);
+}
+
+static void format_sample_progress(
+    char *buffer,
+    size_t buffer_size,
+    uint32_t current,
+    bool current_known,
+    const hmi_state_t *state)
+{
+    if (!current_known) {
+        snprintf(buffer, buffer_size, "--");
+    } else if (state->homing_sample_target_count_known &&
+               state->homing_sample_target_count > 0U) {
+        snprintf(buffer, buffer_size, "%lu / %lu",
+                 (unsigned long)current,
+                 (unsigned long)state->homing_sample_target_count);
+    } else {
+        snprintf(buffer, buffer_size, "%lu", (unsigned long)current);
+    }
 }
 
 void screen_homing_update(const hmi_state_t *state)
@@ -239,25 +296,51 @@ void screen_homing_update(const hmi_state_t *state)
         return;
     }
 
-    char value[32];
-    bool running = state->machine_state_known && homing_is_active(state->machine_state);
+    char value[64];
+    char alarm_buffer[64];
+    bool running = state->machine_state_known &&
+                   hmi_machine_state_is_homing(state->machine_state);
     bool complete = state->machine_state_known && state->machine_state == HMI_MACHINE_READY;
     bool required = state->machine_state_known && state->machine_state == HMI_MACHINE_HOMING_REQUIRED;
+    bool positioning = state->machine_state_known &&
+                       state->machine_state == HMI_MACHINE_POSITIONING;
+    bool waiting_next = state->machine_state_known &&
+                        state->machine_state == HMI_MACHINE_HOMING_WAITING_NEXT_MEASUREMENT;
+    bool waiting_zero = state->machine_state_known &&
+                        state->machine_state == HMI_MACHINE_HOMING_WAITING_ZERO_COMMAND;
     hmi_pending_command_t pending = hmi_pending_command_get();
     bool start_pending = pending == HMI_PENDING_START_HOMING;
     bool abort_pending = pending == HMI_PENDING_ABORT_HOMING;
+    bool command_blocked = hmi_pending_command_is_active();
+    bool homing_alarm_active = state->homing_alarm_code_known &&
+                               state->homing_alarm_code != 0U;
 
     widget_status_badge_update(&s_screen.badge, state);
     const char *stage_text = homing_stage_text(state);
     lv_label_set_text(s_screen.step_label, stage_text);
     lv_obj_set_style_text_color(s_screen.step_label, complete ? hmi_palette_get()->green : hmi_palette_get()->blue, 0);
-    if (start_pending || abort_pending) {
+    if (homing_alarm_active) {
+        lv_label_set_text(
+            s_screen.message_label,
+            hmi_homing_alarm_text(
+                state->homing_alarm_code, alarm_buffer, sizeof(alarm_buffer)));
+    } else if (start_pending || abort_pending) {
         lv_label_set_text(s_screen.message_label, hmi_pending_command_get_message());
+    } else if (waiting_next) {
+        lv_label_set_text(s_screen.message_label, "Press NEXT MEASUREMENT to start the next right-edge sample.");
+    } else if (waiting_zero) {
+        lv_label_set_text(s_screen.message_label, "Measurements are complete. Move the carriage to calibrated zero.");
+    } else if (positioning) {
+        lv_label_set_text(s_screen.message_label, "Carriage positioning is in progress. Position commands are disabled.");
     } else if (running) {
         lv_label_set_text(s_screen.message_label, "Homing is in progress. Use ABORT HOMING only when motion must be interrupted.");
     } else if (complete) {
-        /* READY: homing already established references; RE-HOME redefines them. */
-        lv_label_set_text(s_screen.message_label, "The machine is homed. Re-homing re-measures the optical references and redefines the machine travel range.");
+        if (state->carriage_reference_position_known &&
+            state->carriage_reference_position == HMI_CARRIAGE_POSITION_LEFT_EDGE) {
+            lv_label_set_text(s_screen.message_label, "The machine is homed at the left edge. Move to zero before starting a job.");
+        } else {
+            lv_label_set_text(s_screen.message_label, "The machine is homed. The carriage can move between zero and the left edge.");
+        }
     } else if (required) {
         lv_label_set_text(s_screen.message_label, "Start homing to establish the machine travel references.");
     } else {
@@ -265,7 +348,38 @@ void screen_homing_update(const hmi_state_t *state)
     }
 
     widget_stat_row_set_value(&s_screen.state_row, stage_text,
-                              complete ? HMI_COLOR_GREEN : (running ? HMI_COLOR_BLUE : HMI_COLOR_AMBER));
+                              complete ? HMI_COLOR_GREEN :
+                              (running ? HMI_COLOR_BLUE : HMI_COLOR_AMBER));
+
+    format_sample_progress(
+        value, sizeof(value), state->left_edge_sample_count,
+        state->left_edge_sample_count_known, state);
+    widget_stat_row_set_value(
+        &s_screen.left_samples_row, value,
+        state->left_edge_sample_count_known ? HMI_COLOR_NEUTRAL : HMI_COLOR_DIM);
+
+    format_sample_progress(
+        value, sizeof(value), state->right_edge_sample_count,
+        state->right_edge_sample_count_known, state);
+    widget_stat_row_set_value(
+        &s_screen.right_samples_row, value,
+        state->right_edge_sample_count_known ? HMI_COLOR_NEUTRAL : HMI_COLOR_DIM);
+
+    widget_stat_row_set_value(
+        &s_screen.carriage_row,
+        state->carriage_reference_position_known ?
+            hmi_carriage_reference_position_text(state->carriage_reference_position) : "--",
+        state->carriage_reference_position_known ?
+            (state->carriage_reference_position == HMI_CARRIAGE_POSITION_ZERO ?
+                HMI_COLOR_GREEN : HMI_COLOR_AMBER) : HMI_COLOR_DIM);
+
+    widget_stat_row_set_value(
+        &s_screen.alarm_row,
+        state->homing_alarm_code_known ?
+            hmi_homing_alarm_text(
+                state->homing_alarm_code, alarm_buffer, sizeof(alarm_buffer)) : "--",
+        homing_alarm_active ? HMI_COLOR_RED :
+            (state->homing_alarm_code_known ? HMI_COLOR_GREEN : HMI_COLOR_DIM));
 
     if (state->travel_range_known) {
         snprintf(value, sizeof(value), "%.2f mm", state->travel_range_mm);
@@ -280,16 +394,36 @@ void screen_homing_update(const hmi_state_t *state)
         lv_label_set_text(s_screen.start_label, complete ? "RE-HOME" : "START HOMING");
         lv_obj_center(s_screen.start_label);
     }
-    bool can_start = (required || complete) && !running && !start_pending && !abort_pending;
+    bool can_start = (required || complete) && !running && !command_blocked;
     set_button_enabled(s_screen.start_button, can_start, HMI_COLOR_BLUE);
-    set_button_enabled(s_screen.abort_button, running && !start_pending && !abort_pending, HMI_COLOR_RED);
-    if (running) {
-        lv_obj_add_flag(s_screen.start_button, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(s_screen.abort_button, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_clear_flag(s_screen.start_button, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(s_screen.abort_button, LV_OBJ_FLAG_HIDDEN);
-    }
+    set_button_enabled(s_screen.next_button, waiting_next && !command_blocked, HMI_COLOR_BLUE);
+    set_button_enabled(
+        s_screen.zero_button,
+        !command_blocked &&
+            (waiting_zero ||
+             (complete && state->carriage_reference_position_known &&
+              state->carriage_reference_position == HMI_CARRIAGE_POSITION_LEFT_EDGE)),
+        HMI_COLOR_BLUE);
+    set_button_enabled(
+        s_screen.left_button,
+        !command_blocked && complete && state->carriage_reference_position_known &&
+            state->carriage_reference_position == HMI_CARRIAGE_POSITION_ZERO,
+        HMI_COLOR_BLUE);
+    set_button_enabled(s_screen.abort_button, running && !command_blocked, HMI_COLOR_RED);
+
+    set_button_visible(s_screen.start_button, required || complete);
+    set_button_visible(s_screen.next_button, waiting_next);
+    set_button_visible(
+        s_screen.zero_button,
+        waiting_zero || positioning ||
+            (complete && state->carriage_reference_position_known &&
+             state->carriage_reference_position == HMI_CARRIAGE_POSITION_LEFT_EDGE));
+    set_button_visible(
+        s_screen.left_button,
+        positioning ||
+            (complete && state->carriage_reference_position_known &&
+             state->carriage_reference_position == HMI_CARRIAGE_POSITION_ZERO));
+    set_button_visible(s_screen.abort_button, running);
     if (s_screen.continue_label != NULL) {
         lv_label_set_text(s_screen.continue_label, complete ? "CONTINUE" : "BACK HOME");
         lv_obj_center(s_screen.continue_label);

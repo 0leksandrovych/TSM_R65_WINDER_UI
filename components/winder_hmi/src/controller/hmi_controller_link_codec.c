@@ -9,6 +9,8 @@
 
 typedef enum {
     SNAPSHOT_VALUE_MACHINE_STATE = 0,
+    SNAPSHOT_VALUE_CARRIAGE_POSITION,
+    SNAPSHOT_VALUE_UINT32,
     SNAPSHOT_VALUE_DOUBLE,
 } snapshot_value_type_t;
 
@@ -27,6 +29,41 @@ static const snapshot_field_binding_t snapshot_field_bindings[] = {
         offsetof(hmi_controller_link_state_snapshot_t, machine_state),
         offsetof(hmi_controller_link_state_snapshot_t, machine_state_present),
         SNAPSHOT_VALUE_MACHINE_STATE,
+    },
+    {
+        LINK_FIELD_HOMING_ALARM_CODE,
+        1.0,
+        offsetof(hmi_controller_link_state_snapshot_t, homing_alarm_code),
+        offsetof(hmi_controller_link_state_snapshot_t, homing_alarm_code_present),
+        SNAPSHOT_VALUE_UINT32,
+    },
+    {
+        LINK_FIELD_CARRIAGE_REFERENCE_POSITION,
+        1.0,
+        offsetof(hmi_controller_link_state_snapshot_t, carriage_reference_position),
+        offsetof(hmi_controller_link_state_snapshot_t, carriage_reference_position_present),
+        SNAPSHOT_VALUE_CARRIAGE_POSITION,
+    },
+    {
+        LINK_FIELD_LEFT_EDGE_SAMPLE_COUNT,
+        1.0,
+        offsetof(hmi_controller_link_state_snapshot_t, left_edge_sample_count),
+        offsetof(hmi_controller_link_state_snapshot_t, left_edge_sample_count_present),
+        SNAPSHOT_VALUE_UINT32,
+    },
+    {
+        LINK_FIELD_RIGHT_EDGE_SAMPLE_COUNT,
+        1.0,
+        offsetof(hmi_controller_link_state_snapshot_t, right_edge_sample_count),
+        offsetof(hmi_controller_link_state_snapshot_t, right_edge_sample_count_present),
+        SNAPSHOT_VALUE_UINT32,
+    },
+    {
+        LINK_FIELD_HOMING_SAMPLE_TARGET_COUNT,
+        1.0,
+        offsetof(hmi_controller_link_state_snapshot_t, homing_sample_target_count),
+        offsetof(hmi_controller_link_state_snapshot_t, homing_sample_target_count_present),
+        SNAPSHOT_VALUE_UINT32,
     },
     {
         LINK_FIELD_JOB_MASTER_SPEED,
@@ -299,8 +336,31 @@ static bool apply_snapshot_field(
 
     switch (binding->value_type) {
     case SNAPSHOT_VALUE_MACHINE_STATE:
+        if (scaled_value < (int32_t)LINK_MACHINE_STATE_HOMING_REQUIRED ||
+            scaled_value > (int32_t)LINK_MACHINE_STATE_HOMING_MASTER_POSITIONING) {
+            *present = false;
+            return true;
+        }
         *(link_machine_state_t *)(base + binding->value_offset) =
             (link_machine_state_t)scaled_value;
+        *present = true;
+        return true;
+    case SNAPSHOT_VALUE_CARRIAGE_POSITION:
+        if (scaled_value < (int32_t)LINK_CARRIAGE_REFERENCE_POSITION_UNKNOWN ||
+            scaled_value > (int32_t)LINK_CARRIAGE_REFERENCE_POSITION_MOVING) {
+            *present = false;
+            return true;
+        }
+        *(link_carriage_reference_position_t *)(base + binding->value_offset) =
+            (link_carriage_reference_position_t)scaled_value;
+        *present = true;
+        return true;
+    case SNAPSHOT_VALUE_UINT32:
+        if (scaled_value < 0) {
+            *present = false;
+            return true;
+        }
+        *(uint32_t *)(base + binding->value_offset) = (uint32_t)scaled_value;
         *present = true;
         return true;
     case SNAPSHOT_VALUE_DOUBLE:
@@ -374,6 +434,12 @@ bool hmi_controller_link_encode_message(
         return encode_empty(out_encoded, WINDER_LINK_MSG_START_HOMING);
     case HMI_CONTROLLER_MSG_ABORT_HOMING:
         return encode_empty(out_encoded, WINDER_LINK_MSG_ABORT_HOMING);
+    case HMI_CONTROLLER_MSG_HOMING_NEXT_MEASUREMENT:
+        return encode_empty(out_encoded, WINDER_LINK_MSG_HOMING_NEXT_MEASUREMENT);
+    case HMI_CONTROLLER_MSG_MOVE_CARRIAGE_TO_ZERO:
+        return encode_empty(out_encoded, WINDER_LINK_MSG_MOVE_CARRIAGE_TO_ZERO);
+    case HMI_CONTROLLER_MSG_MOVE_CARRIAGE_TO_LEFT_EDGE:
+        return encode_empty(out_encoded, WINDER_LINK_MSG_MOVE_CARRIAGE_TO_LEFT_EDGE);
     case HMI_CONTROLLER_MSG_PAUSE_JOB:
         return encode_empty(out_encoded, WINDER_LINK_MSG_PAUSE_JOB);
     case HMI_CONTROLLER_MSG_RESUME_JOB:

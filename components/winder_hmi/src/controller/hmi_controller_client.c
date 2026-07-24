@@ -47,6 +47,15 @@ static const command_binding_t s_command_bindings[] = {
       CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
     { HMI_CMD_ABORT_HOMING,          HMI_CONTROLLER_MSG_ABORT_HOMING,
       CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_HOMING_NEXT_MEASUREMENT,
+      HMI_CONTROLLER_MSG_HOMING_NEXT_MEASUREMENT,
+      CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_MOVE_CARRIAGE_TO_ZERO,
+      HMI_CONTROLLER_MSG_MOVE_CARRIAGE_TO_ZERO,
+      CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_MOVE_CARRIAGE_TO_LEFT_EDGE,
+      HMI_CONTROLLER_MSG_MOVE_CARRIAGE_TO_LEFT_EDGE,
+      CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
     { HMI_CMD_VALIDATE_JOB,          HMI_CONTROLLER_MSG_VALIDATE_JOB,
       CMD_PAYLOAD_JOB, CMD_FLOAT_FIELD_NONE },
     { HMI_CMD_START_JOB,             HMI_CONTROLLER_MSG_START_JOB,
@@ -167,6 +176,15 @@ static bool command_for_wire_type(winder_link_msg_type_t type, hmi_command_t *ou
         return true;
     case WINDER_LINK_MSG_ABORT_HOMING:
         *out_command = HMI_CMD_ABORT_HOMING;
+        return true;
+    case WINDER_LINK_MSG_HOMING_NEXT_MEASUREMENT:
+        *out_command = HMI_CMD_HOMING_NEXT_MEASUREMENT;
+        return true;
+    case WINDER_LINK_MSG_MOVE_CARRIAGE_TO_ZERO:
+        *out_command = HMI_CMD_MOVE_CARRIAGE_TO_ZERO;
+        return true;
+    case WINDER_LINK_MSG_MOVE_CARRIAGE_TO_LEFT_EDGE:
+        *out_command = HMI_CMD_MOVE_CARRIAGE_TO_LEFT_EDGE;
         return true;
     case WINDER_LINK_MSG_PAUSE_JOB:
         *out_command = HMI_CMD_PAUSE_JOB;

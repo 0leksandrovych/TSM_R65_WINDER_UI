@@ -15,20 +15,78 @@ static inline uint32_t hmi_now_ms(void)
     return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
 }
 
-static bool machine_is_homing(hmi_machine_state_t state)
+static void show_action_error(const char *message)
 {
-    switch (state) {
-    case HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE:
-    case HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE:
-    case HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE:
-    case HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE:
-    case HMI_MACHINE_HOMING_MEASURING_TRAVEL:
-    case HMI_MACHINE_HOMING_APPLYING_OFFSET:
-    case HMI_MACHINE_HOMING_COMPLETING:
-        return true;
-    default:
-        return false;
+    const hmi_state_t *current = hmi_model_get_state();
+    if (current == NULL || message == NULL) {
+        return;
     }
+
+    hmi_state_t state = *current;
+    state.last_error = message;
+    state.last_event = message;
+    hmi_model_set_state(&state);
+    hmi_navigation_update(hmi_model_get_state());
+}
+
+static const char *start_job_block_reason(const hmi_state_t *state)
+{
+    if (state == NULL || !state->machine_state_known) {
+        return "Machine state unavailable";
+    }
+    if (!state->carriage_reference_position_known ||
+        state->carriage_reference_position == HMI_CARRIAGE_POSITION_UNKNOWN) {
+        return "Carriage position unavailable";
+    }
+    if (state->carriage_reference_position == HMI_CARRIAGE_POSITION_LEFT_EDGE) {
+        return "Return carriage to zero before starting";
+    }
+    if (state->carriage_reference_position == HMI_CARRIAGE_POSITION_MOVING ||
+        hmi_machine_state_is_positioning(state->machine_state)) {
+        return "Wait until carriage positioning completes";
+    }
+    if (state->machine_state != HMI_MACHINE_READY) {
+        return "Machine is not ready to start";
+    }
+    if (!state->safety_ok) {
+        return "Safety circuit is not ready";
+    }
+    if (hmi_model_get_connection_state() != HMI_CONNECTION_CONNECTED) {
+        return "Controller not connected";
+    }
+    if (hmi_pending_command_is_active()) {
+        return "Another command is in progress";
+    }
+    return NULL;
+}
+
+static void start_job_if_allowed(void)
+{
+    const hmi_state_t *state = hmi_model_get_state();
+    const char *reason = start_job_block_reason(state);
+    if (reason != NULL || !hmi_state_can_start_job(state)) {
+        show_action_error(reason != NULL ? reason : "Winding start is unavailable");
+        return;
+    }
+
+    if (!hmi_job_draft_model_validate_local()) {
+        const hmi_job_validation_t *validation =
+            hmi_job_draft_model_get_validation();
+
+        show_action_error(
+            validation != NULL && validation->message[0] != '\0'
+                ? validation->message
+                : "Job parameters are invalid");
+        return;
+    }
+
+    if (!hmi_command_bus_emit(HMI_CMD_START_JOB, NULL)) {
+        return;
+    }
+
+    hmi_pending_command_set(HMI_PENDING_START_JOB, "Starting job...",
+                            hmi_now_ms(), HMI_PENDING_START_TIMEOUT_MS);
+    hmi_navigation_update(state);
 }
 
 void hmi_actions_home_primary(void)
@@ -39,7 +97,8 @@ void hmi_actions_home_primary(void)
     }
 
     if (state->machine_state == HMI_MACHINE_HOMING_REQUIRED ||
-        machine_is_homing(state->machine_state)) {
+        hmi_machine_state_is_homing(state->machine_state) ||
+        hmi_machine_state_is_positioning(state->machine_state)) {
         hmi_navigation_show(HMI_SCREEN_HOMING);
         return;
     }
@@ -49,8 +108,21 @@ void hmi_actions_home_primary(void)
         return;
     }
 
-    if (state->machine_state == HMI_MACHINE_READY && state->job_state == HMI_JOB_VALID) {
-        hmi_actions_open_confirm_start();
+    if (state->machine_state == HMI_MACHINE_READY &&
+        state->carriage_reference_position_known &&
+        state->carriage_reference_position == HMI_CARRIAGE_POSITION_LEFT_EDGE) {
+        hmi_actions_move_carriage_to_zero();
+        return;
+    }
+
+    if (state->machine_state == HMI_MACHINE_READY &&
+        state->carriage_reference_position_known &&
+        state->carriage_reference_position == HMI_CARRIAGE_POSITION_ZERO) {
+        if (hmi_job_draft_model_get_mode() == HMI_JOB_MODE_NONE) {
+            hmi_actions_open_jobs();
+        } else {
+            hmi_actions_open_confirm_start();
+        }
         return;
     }
 
@@ -125,10 +197,7 @@ void hmi_actions_update_job_param(uint16_t param_id, hmi_param_value_t value)
 
 void hmi_actions_confirm_start_job(void)
 {
-    hmi_pending_command_set(HMI_PENDING_START_JOB, "Starting job...",
-                            hmi_now_ms(), HMI_PENDING_START_TIMEOUT_MS);
-    hmi_navigation_update(hmi_model_get_state());
-    hmi_command_bus_emit(HMI_CMD_START_JOB, NULL);
+    start_job_if_allowed();
 }
 
 void hmi_actions_open_homing(void)
@@ -194,12 +263,58 @@ void hmi_actions_abort_homing(void)
     hmi_command_bus_emit(HMI_CMD_ABORT_HOMING, NULL);
 }
 
+void hmi_actions_homing_next_measurement(void)
+{
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL ||
+        !state->machine_state_known ||
+        state->machine_state != HMI_MACHINE_HOMING_WAITING_NEXT_MEASUREMENT ||
+        hmi_pending_command_is_active()) {
+        return;
+    }
+
+    (void)hmi_command_bus_emit(HMI_CMD_HOMING_NEXT_MEASUREMENT, NULL);
+}
+
+void hmi_actions_move_carriage_to_zero(void)
+{
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL || !state->machine_state_known ||
+        hmi_pending_command_is_active()) {
+        return;
+    }
+
+    bool allowed_after_homing =
+        state->machine_state == HMI_MACHINE_HOMING_WAITING_ZERO_COMMAND;
+    bool allowed_from_left_edge =
+        state->machine_state == HMI_MACHINE_READY &&
+        state->carriage_reference_position_known &&
+        state->carriage_reference_position == HMI_CARRIAGE_POSITION_LEFT_EDGE;
+    if (!allowed_after_homing && !allowed_from_left_edge) {
+        return;
+    }
+
+    (void)hmi_command_bus_emit(HMI_CMD_MOVE_CARRIAGE_TO_ZERO, NULL);
+}
+
+void hmi_actions_move_carriage_to_left_edge(void)
+{
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL ||
+        !state->machine_state_known ||
+        state->machine_state != HMI_MACHINE_READY ||
+        !state->carriage_reference_position_known ||
+        state->carriage_reference_position != HMI_CARRIAGE_POSITION_ZERO ||
+        hmi_pending_command_is_active()) {
+        return;
+    }
+
+    (void)hmi_command_bus_emit(HMI_CMD_MOVE_CARRIAGE_TO_LEFT_EDGE, NULL);
+}
+
 void hmi_actions_start_job(void)
 {
-    hmi_pending_command_set(HMI_PENDING_START_JOB, "Starting job...",
-                            hmi_now_ms(), HMI_PENDING_START_TIMEOUT_MS);
-    hmi_navigation_update(hmi_model_get_state());
-    hmi_command_bus_emit(HMI_CMD_START_JOB, NULL);
+    start_job_if_allowed();
 }
 
 void hmi_actions_pause_job(void)

@@ -67,6 +67,9 @@ typedef enum {
     WINDER_LINK_MSG_GET_TELEMETRY         = 0x0E,
     WINDER_LINK_MSG_RESET_JOB             = 0x0F,
     WINDER_LINK_MSG_FINISH_JOB            = 0x10,
+    WINDER_LINK_MSG_HOMING_NEXT_MEASUREMENT = 0x11,
+    WINDER_LINK_MSG_MOVE_CARRIAGE_TO_ZERO   = 0x12,
+    WINDER_LINK_MSG_MOVE_CARRIAGE_TO_LEFT_EDGE = 0x13,
 
     /* Controller → HMI responses / unsolicited messages */
     WINDER_LINK_MSG_PONG                  = 0x80,
