@@ -209,6 +209,16 @@ static void handle_state_snapshot(
     if (snapshot->applied_right_edge_offset_mm_present) {
         state.right_edge_offset_mm = (float)snapshot->applied_right_edge_offset_mm;
     }
+    if (snapshot->active_left_edge_trim_mm_present) {
+        state.active_left_edge_trim_mm =
+            (float)snapshot->active_left_edge_trim_mm;
+        state.active_left_edge_trim_known = true;
+    }
+    if (snapshot->active_right_edge_trim_mm_present) {
+        state.active_right_edge_trim_mm =
+            (float)snapshot->active_right_edge_trim_mm;
+        state.active_right_edge_trim_known = true;
+    }
     if (snapshot->travel_range_mm_present) {
         state.travel_range_mm = snapshot->travel_range_mm;
         state.travel_range_known = true;

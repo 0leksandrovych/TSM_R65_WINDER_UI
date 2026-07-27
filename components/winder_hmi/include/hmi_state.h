@@ -86,6 +86,10 @@ typedef struct {
     bool winding_pitch_known;
     float speed_override_percent;
     float right_edge_offset_mm;
+    float active_left_edge_trim_mm;
+    bool active_left_edge_trim_known;
+    float active_right_edge_trim_mm;
+    bool active_right_edge_trim_known;
     float eta_min;
     uint32_t current_layer;
     uint32_t shift_every_layers;

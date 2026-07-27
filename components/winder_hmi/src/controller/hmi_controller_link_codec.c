@@ -101,6 +101,20 @@ static const snapshot_field_binding_t snapshot_field_bindings[] = {
         SNAPSHOT_VALUE_DOUBLE,
     },
     {
+        LINK_FIELD_ACTIVE_LEFT_EDGE_TRIM_MM,
+        100.0,
+        offsetof(hmi_controller_link_state_snapshot_t, active_left_edge_trim_mm),
+        offsetof(hmi_controller_link_state_snapshot_t, active_left_edge_trim_mm_present),
+        SNAPSHOT_VALUE_DOUBLE,
+    },
+    {
+        LINK_FIELD_ACTIVE_RIGHT_EDGE_TRIM_MM,
+        100.0,
+        offsetof(hmi_controller_link_state_snapshot_t, active_right_edge_trim_mm),
+        offsetof(hmi_controller_link_state_snapshot_t, active_right_edge_trim_mm_present),
+        SNAPSHOT_VALUE_DOUBLE,
+    },
+    {
         LINK_FIELD_JOB_WINDING_PITCH,
         100.0,
         offsetof(hmi_controller_link_state_snapshot_t, job_winding_pitch),
@@ -252,6 +266,43 @@ static bool encode_start_job(
     out_encoded->type = WINDER_LINK_MSG_START_JOB;
     out_encoded->payload_len = winder_link_payload_writer_len(&writer);
     return true;
+}
+
+static bool encode_edge_trim(
+    const hmi_controller_message_t *message,
+    hmi_controller_link_encoded_t *out_encoded)
+{
+    int32_t left_centi_mm = 0;
+    int32_t right_centi_mm = 0;
+    if (!scale_to_i32(message->data.edge_trim.left_trim_mm,
+                      100.0,
+                      &left_centi_mm) ||
+        !scale_to_i32(message->data.edge_trim.right_trim_mm,
+                      100.0,
+                      &right_centi_mm)) {
+        return false;
+    }
+
+    winder_link_payload_writer_t writer;
+    if (!winder_link_payload_writer_init(
+            &writer,
+            out_encoded->payload,
+            sizeof(out_encoded->payload)) ||
+        !winder_link_payload_write_u8(&writer, LINK_EDGE_TRIM_PARAM_COUNT) ||
+        !winder_link_payload_write_u16_le(
+            &writer,
+            LINK_PARAM_LEFT_EDGE_TRIM_MM) ||
+        !winder_link_payload_write_i32_le(&writer, left_centi_mm) ||
+        !winder_link_payload_write_u16_le(
+            &writer,
+            LINK_PARAM_RIGHT_EDGE_TRIM_MM) ||
+        !winder_link_payload_write_i32_le(&writer, right_centi_mm)) {
+        return false;
+    }
+
+    out_encoded->type = WINDER_LINK_MSG_APPLY_EDGE_TRIM;
+    out_encoded->payload_len = winder_link_payload_writer_len(&writer);
+    return out_encoded->payload_len == LINK_EDGE_TRIM_PAYLOAD_ENCODED_SIZE;
 }
 
 static bool read_original_command(
@@ -459,10 +510,7 @@ bool hmi_controller_link_encode_message(
     case HMI_CONTROLLER_MSG_START_JOB:
         return encode_start_job(message, out_encoded);
     case HMI_CONTROLLER_MSG_APPLY_EDGE_TRIM:
-        /* APPLY_EDGE_TRIM carries empty payload because the current HMI command
-         * only requests applying the already staged edge trim state. It does not
-         * transfer trim values. */
-        return encode_empty(out_encoded, WINDER_LINK_MSG_APPLY_EDGE_TRIM);
+        return encode_edge_trim(message, out_encoded);
     case HMI_CONTROLLER_MSG_GET_TELEMETRY:
         return encode_empty(out_encoded, WINDER_LINK_MSG_GET_TELEMETRY);
     case HMI_CONTROLLER_MSG_NONE:

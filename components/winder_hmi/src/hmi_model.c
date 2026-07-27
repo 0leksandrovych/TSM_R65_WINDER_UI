@@ -37,6 +37,10 @@ void hmi_model_init(void)
     s_state.winding_pitch_known = false;
     s_state.speed_override_percent = 0.0f;
     s_state.right_edge_offset_mm = 0.0f;
+    s_state.active_left_edge_trim_mm = 0.0f;
+    s_state.active_left_edge_trim_known = false;
+    s_state.active_right_edge_trim_mm = 0.0f;
+    s_state.active_right_edge_trim_known = false;
     s_state.eta_min = 0.0f;
     s_state.current_layer = 0;
     s_state.shift_every_layers = 0;

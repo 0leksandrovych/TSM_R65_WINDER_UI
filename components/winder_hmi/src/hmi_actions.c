@@ -1,5 +1,7 @@
 #include "hmi_actions.h"
 
+#include <math.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -439,12 +441,60 @@ void hmi_actions_set_speed_override(float percent)
     hmi_command_bus_emit(HMI_CMD_SET_SPEED_OVERRIDE, &payload);
 }
 
-void hmi_actions_apply_edge_trim(float trim_mm)
+static bool edge_trim_value_is_allowed(hmi_edge_trim_side_t side, float value)
 {
+    const hmi_param_descriptor_t *capability =
+        hmi_capability_model_get_edge_trim(side);
+    return capability != NULL &&
+           isfinite(value) &&
+           value >= capability->min_value.f32 &&
+           value <= capability->max_value.f32;
+}
+
+bool hmi_actions_apply_edge_trim(float left_trim_mm, float right_trim_mm)
+{
+    const hmi_state_t *state = hmi_model_get_state();
+    bool state_allows_trim = state != NULL &&
+                             state->machine_state_known &&
+                             (state->machine_state == HMI_MACHINE_RUNNING ||
+                              state->machine_state == HMI_MACHINE_PAUSED);
+    if (!state_allows_trim) {
+        show_action_error("Edge Trim is available only while running or paused");
+        return false;
+    }
+    if (hmi_model_get_connection_state() != HMI_CONNECTION_CONNECTED) {
+        show_action_error("Controller not connected");
+        return false;
+    }
+    if (hmi_pending_command_is_active()) {
+        show_action_error("Another command is in progress");
+        return false;
+    }
+    if (!edge_trim_value_is_allowed(HMI_EDGE_TRIM_LEFT, left_trim_mm) ||
+        !edge_trim_value_is_allowed(HMI_EDGE_TRIM_RIGHT, right_trim_mm)) {
+        show_action_error("Edge Trim value is outside controller capabilities");
+        return false;
+    }
+
     hmi_command_payload_t payload = {
-        .value.f32 = trim_mm,
+        .edge_trim = {
+            .left_trim_mm = left_trim_mm,
+            .right_trim_mm = right_trim_mm,
+        },
     };
-    hmi_command_bus_emit(HMI_CMD_APPLY_EDGE_TRIM, &payload);
+    if (!hmi_command_bus_emit(HMI_CMD_APPLY_EDGE_TRIM, &payload)) {
+        return false;
+    }
+
+    hmi_edge_trim_pending_stage_candidate(
+        (int32_t)lroundf(left_trim_mm * 100.0f),
+        (int32_t)lroundf(right_trim_mm * 100.0f));
+    hmi_pending_command_set_default(
+        HMI_PENDING_EDGE_TRIM,
+        "Sending edge trim...",
+        hmi_now_ms());
+    hmi_navigation_update(state);
+    return true;
 }
 
 void hmi_actions_reset_unwound_counter(void)

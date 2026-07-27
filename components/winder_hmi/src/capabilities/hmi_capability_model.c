@@ -27,7 +27,7 @@ static const hmi_param_descriptor_t s_demo_winding_params[] = {
         },
         .default_value.f32 = 2.50f,
         .min_value.f32 = 0.10f,
-        .max_value.f32 = 15.00f,
+        .max_value.f32 = 30.00f,
         .step.f32 = 0.10f,
         .decimals = 1,
         .editable = true,
@@ -102,6 +102,45 @@ static const hmi_param_descriptor_t s_demo_winding_params[] = {
         .max_value.f32 = 50.00f,
         .step.f32 = 0.01f,
         .decimals = 2,
+        .editable = true,
+        .visible = true,
+    },
+};
+
+static const hmi_param_descriptor_t s_edge_trim_params[HMI_EDGE_TRIM_COUNT] = {
+    [HMI_EDGE_TRIM_LEFT] = {
+        .id = LINK_PARAM_LEFT_EDGE_TRIM_MM,
+        .key = "left_edge_trim",
+        .label = "Left edge trim",
+        .unit = "mm",
+        .type = HMI_PARAM_TYPE_FLOAT,
+        .wire = {
+            .param_id = LINK_PARAM_LEFT_EDGE_TRIM_MM,
+            .scale = 100.0,
+        },
+        .default_value.f32 = 0.0f,
+        .min_value.f32 = -50.0f,
+        .max_value.f32 = 50.0f,
+        .step.f32 = 0.1f,
+        .decimals = 1,
+        .editable = true,
+        .visible = true,
+    },
+    [HMI_EDGE_TRIM_RIGHT] = {
+        .id = LINK_PARAM_RIGHT_EDGE_TRIM_MM,
+        .key = "right_edge_trim",
+        .label = "Right edge trim",
+        .unit = "mm",
+        .type = HMI_PARAM_TYPE_FLOAT,
+        .wire = {
+            .param_id = LINK_PARAM_RIGHT_EDGE_TRIM_MM,
+            .scale = 100.0,
+        },
+        .default_value.f32 = 0.0f,
+        .min_value.f32 = -50.0f,
+        .max_value.f32 = 50.0f,
+        .step.f32 = 0.1f,
+        .decimals = 1,
         .editable = true,
         .visible = true,
     },
@@ -209,4 +248,14 @@ const hmi_param_descriptor_t *hmi_capability_model_get_param_by_key(hmi_job_mode
         }
     }
     return NULL;
+}
+
+const hmi_param_descriptor_t *hmi_capability_model_get_edge_trim(
+    hmi_edge_trim_side_t side)
+{
+    if ((unsigned)side >= HMI_EDGE_TRIM_COUNT) {
+        return NULL;
+    }
+
+    return &s_edge_trim_params[side];
 }

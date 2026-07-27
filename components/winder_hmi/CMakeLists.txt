@@ -28,6 +28,7 @@ idf_component_register(
         "src/widgets/widget_stat_row.c"
         "src/modals/modal_numeric_keypad.c"
         "src/modals/modal_confirm.c"
+        "src/modals/modal_edge_trim.c"
         "src/screens/screen_home.c"
         "src/screens/screen_jobs.c"
         "src/screens/screen_conical_setup.c"

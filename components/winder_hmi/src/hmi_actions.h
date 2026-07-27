@@ -34,6 +34,6 @@ void hmi_actions_abort_job(void);
 void hmi_actions_finish_job(void);
 void hmi_actions_reset_job(void);
 void hmi_actions_set_speed_override(float percent);
-void hmi_actions_apply_edge_trim(float trim_mm);
+bool hmi_actions_apply_edge_trim(float left_trim_mm, float right_trim_mm);
 void hmi_actions_reset_unwound_counter(void);
 void hmi_actions_reset_alarm(void);

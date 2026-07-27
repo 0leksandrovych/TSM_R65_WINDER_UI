@@ -41,6 +41,9 @@ static mock_operation_t s_pending_op;
 static uint32_t s_pending_elapsed_ms;
 static uint32_t s_pending_delay_ms;
 static hmi_controller_message_t s_pending_message;
+static bool s_edge_trim_staged;
+static float s_staged_left_edge_trim_mm;
+static float s_staged_right_edge_trim_mm;
 
 static const hmi_state_t s_ready_state = {
     .machine_state          = HMI_MACHINE_HOMING_REQUIRED,
@@ -63,6 +66,10 @@ static const hmi_state_t s_ready_state = {
     .winding_pitch_known    = false,
     .speed_override_percent = 100.0f,
     .right_edge_offset_mm   = 0.0f,
+    .active_left_edge_trim_mm = 0.0f,
+    .active_left_edge_trim_known = true,
+    .active_right_edge_trim_mm = 0.0f,
+    .active_right_edge_trim_known = true,
     .eta_min                = 0.0f,
     .current_layer          = 0,
     .encoder_count          = 0,
@@ -370,6 +377,11 @@ static void start_run(const hmi_controller_job_payload_t *job)
     s_state.travel_range_mm         = 250.0;
     s_state.travel_range_known      = true;
     s_state.right_edge_offset_mm    = 0.0f;
+    s_state.active_left_edge_trim_mm = 0.0f;
+    s_state.active_left_edge_trim_known = true;
+    s_state.active_right_edge_trim_mm = 0.0f;
+    s_state.active_right_edge_trim_known = true;
+    s_edge_trim_staged = false;
     s_state.carriage_direction      = HMI_CARRIAGE_RIGHT;
     s_state.motor_state             = "Running";
     s_state.last_error              = NULL;
@@ -585,12 +597,14 @@ static void update_run(uint32_t elapsed_ms)
         }
     }
 
+    bool reversed = false;
     if (s_state.carriage_direction == HMI_CARRIAGE_RIGHT) {
         s_state.carriage_position_mm += 12.0f;
         if ((double)s_state.carriage_position_mm >= s_state.travel_range_mm) {
             s_state.carriage_position_mm = (float)s_state.travel_range_mm;
             s_state.carriage_direction   = HMI_CARRIAGE_LEFT;
             s_state.current_layer++;
+            reversed = true;
         }
     } else {
         s_state.carriage_position_mm -= 12.0f;
@@ -598,7 +612,15 @@ static void update_run(uint32_t elapsed_ms)
             s_state.carriage_position_mm = 0.0f;
             s_state.carriage_direction   = HMI_CARRIAGE_RIGHT;
             s_state.current_layer++;
+            reversed = true;
         }
+    }
+
+    if (reversed && s_edge_trim_staged) {
+        s_state.active_left_edge_trim_mm = s_staged_left_edge_trim_mm;
+        s_state.active_right_edge_trim_mm = s_staged_right_edge_trim_mm;
+        s_edge_trim_staged = false;
+        s_state.last_event = "Staged edge trim activated";
     }
 
     s_state.right_edge_offset_mm = (float)(s_state.travel_range_mm - s_state.carriage_position_mm);
@@ -685,9 +707,30 @@ static bool mock_send(const hmi_controller_message_t *message, uint16_t seq, voi
         }
         return true;
     case HMI_CONTROLLER_MSG_APPLY_EDGE_TRIM:
+        if (s_state.machine_state != HMI_MACHINE_RUNNING &&
+            s_state.machine_state != HMI_MACHINE_PAUSED) {
+            (void)winder_hmi_post_command_rejected(
+                HMI_CMD_APPLY_EDGE_TRIM,
+                "Edge Trim is unavailable in this state");
+            return true;
+        }
+
         (void)winder_hmi_post_command_accepted(HMI_CMD_APPLY_EDGE_TRIM);
-        s_state.right_edge_offset_mm += message->data.edge_trim_mm;
-        s_state.last_event = "Edge trim applied";
+        if (s_state.machine_state == HMI_MACHINE_PAUSED) {
+            s_state.active_left_edge_trim_mm =
+                message->data.edge_trim.left_trim_mm;
+            s_state.active_right_edge_trim_mm =
+                message->data.edge_trim.right_trim_mm;
+            s_edge_trim_staged = false;
+            s_state.last_event = "Edge trim activated while paused";
+        } else {
+            s_staged_left_edge_trim_mm =
+                message->data.edge_trim.left_trim_mm;
+            s_staged_right_edge_trim_mm =
+                message->data.edge_trim.right_trim_mm;
+            s_edge_trim_staged = true;
+            s_state.last_event = "Edge trim staged for next reversal";
+        }
         publish_state();
         return true;
     case HMI_CONTROLLER_MSG_NONE:
@@ -713,6 +756,9 @@ void hmi_mock_controller_reset(void)
     s_pending_elapsed_ms    = 0;
     s_pending_delay_ms      = 0;
     s_pending_message       = (hmi_controller_message_t){0};
+    s_edge_trim_staged      = false;
+    s_staged_left_edge_trim_mm = 0.0f;
+    s_staged_right_edge_trim_mm = 0.0f;
 }
 
 void hmi_mock_controller_set_enabled(bool enabled)

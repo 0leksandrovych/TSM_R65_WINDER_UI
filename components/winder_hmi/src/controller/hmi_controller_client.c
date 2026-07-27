@@ -27,12 +27,12 @@ typedef enum {
     CMD_PAYLOAD_NONE,
     CMD_PAYLOAD_JOB,
     CMD_PAYLOAD_SINGLE_FLOAT,
+    CMD_PAYLOAD_EDGE_TRIM,
 } command_payload_kind_t;
 
 typedef enum {
     CMD_FLOAT_FIELD_NONE,
     CMD_FLOAT_FIELD_SPEED_OVERRIDE_PERCENT,
-    CMD_FLOAT_FIELD_EDGE_TRIM_MM,
 } command_float_field_t;
 
 typedef struct {
@@ -77,7 +77,7 @@ static const command_binding_t s_command_bindings[] = {
     { HMI_CMD_SET_SPEED_OVERRIDE,    HMI_CONTROLLER_MSG_SET_SPEED_OVERRIDE,
       CMD_PAYLOAD_SINGLE_FLOAT, CMD_FLOAT_FIELD_SPEED_OVERRIDE_PERCENT },
     { HMI_CMD_APPLY_EDGE_TRIM,       HMI_CONTROLLER_MSG_APPLY_EDGE_TRIM,
-      CMD_PAYLOAD_SINGLE_FLOAT, CMD_FLOAT_FIELD_EDGE_TRIM_MM },
+      CMD_PAYLOAD_EDGE_TRIM, CMD_FLOAT_FIELD_NONE },
 };
 
 static bool s_initialized;
@@ -357,16 +357,18 @@ static bool on_command(hmi_command_t command,
             message.data.speed_override_percent = value;
             ok = true;
             break;
-        case CMD_FLOAT_FIELD_EDGE_TRIM_MM:
-            message.data.edge_trim_mm = value;
-            ok = true;
-            break;
         case CMD_FLOAT_FIELD_NONE:
         default:
             break;
         }
         break;
     }
+    case CMD_PAYLOAD_EDGE_TRIM:
+        ok = payload != NULL && hmi_controller_message_init_edge_trim(
+            &message,
+            payload->edge_trim.left_trim_mm,
+            payload->edge_trim.right_trim_mm);
+        break;
     default:
         break;
     }

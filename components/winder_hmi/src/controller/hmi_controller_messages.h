@@ -64,11 +64,16 @@ typedef struct {
 } hmi_controller_job_payload_t;
 
 typedef struct {
+    float left_trim_mm;
+    float right_trim_mm;
+} hmi_controller_edge_trim_request_t;
+
+typedef struct {
     hmi_controller_msg_type_t type;
     union {
         hmi_controller_job_payload_t job;
         float speed_override_percent;
-        float edge_trim_mm;
+        hmi_controller_edge_trim_request_t edge_trim;
     } data;
 } hmi_controller_message_t;
 
@@ -93,3 +98,8 @@ bool hmi_controller_message_init(hmi_controller_message_t *out,
 bool hmi_controller_message_init_job(hmi_controller_message_t *out,
                                      hmi_controller_msg_type_t type,
                                      const hmi_controller_job_payload_t *job_payload);
+
+bool hmi_controller_message_init_edge_trim(
+    hmi_controller_message_t *out,
+    float left_trim_mm,
+    float right_trim_mm);

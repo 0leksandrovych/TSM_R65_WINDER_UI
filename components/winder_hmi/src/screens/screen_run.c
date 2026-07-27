@@ -1,5 +1,6 @@
 #include "screen_run.h"
 
+#include <math.h>
 #include <stdio.h>
 
 #include "hmi_actions.h"
@@ -8,6 +9,7 @@
 #include "hmi_styles.h"
 #include "hmi_types.h"
 #include "modal_confirm.h"
+#include "modal_edge_trim.h"
 #include "widget_status_badge.h"
 
 typedef struct {
@@ -27,12 +29,13 @@ typedef struct {
     run_value_card_t winding_pitch;
     run_value_card_t completed_layers;
     run_value_card_t applied_edge_offset;
-    run_value_card_t shift_interval;
+    run_value_card_t edge_trim;
     lv_obj_t *feedback_label;
     lv_obj_t *primary_button;   /* PAUSE / RESUME (also shows run-state text) */
     lv_obj_t *primary_label;
     lv_obj_t *secondary_button; /* ABORT / FINISH JOB */
     lv_obj_t *secondary_label;
+    lv_obj_t *edge_trim_button;
 } run_screen_t;
 
 static run_screen_t s_screen;
@@ -98,6 +101,12 @@ static void secondary_event_cb(lv_event_t *event)
          * pending gating live entirely inside hmi_actions_abort_job(). */
         hmi_actions_abort_job();
     }
+}
+
+static void edge_trim_event_cb(lv_event_t *event)
+{
+    (void)event;
+    modal_edge_trim_open();
 }
 
 static void set_button_enabled_color(lv_obj_t *button, hmi_color_role_t role)
@@ -338,8 +347,9 @@ void screen_run_create(lv_obj_t *root)
     value_card_create(card_grid, &s_screen.job_speed, "JOB SPEED");
     value_card_create(card_grid, &s_screen.winding_pitch, "WINDING PITCH");
     value_card_create(card_grid, &s_screen.completed_layers, "COMPLETED LAYERS");
-    value_card_create(card_grid, &s_screen.applied_edge_offset, "APPLIED EDGE OFFSET");
-    value_card_create(card_grid, &s_screen.shift_interval, "SHIFT INTERVAL");
+    value_card_create(card_grid, &s_screen.applied_edge_offset, "CONICAL OFFSET / INTERVAL");
+    value_card_create(card_grid, &s_screen.edge_trim, "EDGE TRIM");
+    lv_obj_add_style(s_screen.edge_trim.value, &styles->status_text, 0);
 
     lv_obj_t *buttons = lv_obj_create(root);
     lv_obj_remove_style_all(buttons);
@@ -349,14 +359,28 @@ void screen_run_create(lv_obj_t *root)
     lv_obj_set_style_pad_column(buttons, 12, 0);
     lv_obj_clear_flag(buttons, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_screen.primary_button = create_button(buttons, "PAUSE", 226, HMI_COLOR_AMBER, primary_event_cb);
+    s_screen.primary_button = create_button(buttons, "PAUSE", 200, HMI_COLOR_AMBER, primary_event_cb);
     s_screen.primary_label = lv_obj_get_child(s_screen.primary_button, 0);
-    s_screen.secondary_button = create_button(buttons, "ABORT", 226, HMI_COLOR_RED, secondary_event_cb);
+    s_screen.secondary_button = create_button(buttons, "ABORT", 200, HMI_COLOR_RED, secondary_event_cb);
     s_screen.secondary_label = lv_obj_get_child(s_screen.secondary_button, 0);
+    s_screen.edge_trim_button = create_button(
+        buttons, "EDGE TRIM", 160, HMI_COLOR_BLUE, edge_trim_event_cb);
     create_home_button(buttons);
 
     set_button_dimmed(s_screen.primary_button, true);
     set_button_dimmed(s_screen.secondary_button, true);
+    set_button_dimmed(s_screen.edge_trim_button, true);
+}
+
+static void format_trim_value(char *buffer, size_t buffer_size, int32_t centi_mm)
+{
+    if (centi_mm == 0) {
+        snprintf(buffer, buffer_size, "0.0");
+    } else if ((centi_mm % 10) == 0) {
+        snprintf(buffer, buffer_size, "%+.1f", (double)centi_mm / 100.0);
+    } else {
+        snprintf(buffer, buffer_size, "%+.2f", (double)centi_mm / 100.0);
+    }
 }
 
 void screen_run_update(const hmi_state_t *state)
@@ -365,7 +389,7 @@ void screen_run_update(const hmi_state_t *state)
         return;
     }
 
-    char value[48];
+    char value[96];
     widget_status_badge_update(&s_screen.badge, state);
     hmi_pending_command_t pending = hmi_pending_command_get();
     bool any_pending = hmi_pending_command_is_active();
@@ -448,15 +472,61 @@ void screen_run_update(const hmi_state_t *state)
     snprintf(value, sizeof(value), "%lu", (unsigned long)state->current_layer);
     value_card_set(&s_screen.completed_layers, value, HMI_COLOR_NEUTRAL);
 
-    snprintf(value, sizeof(value), "%+.2f mm", (double)state->right_edge_offset_mm);
-    value_card_set(&s_screen.applied_edge_offset, value, HMI_COLOR_NEUTRAL);
-
     snprintf(
         value,
         sizeof(value),
-        state->shift_every_layers == 1U ? "%lu layer" : "%lu layers",
+        state->shift_every_layers == 1U
+            ? "%+.2f mm / %lu layer"
+            : "%+.2f mm / %lu layers",
+        (double)state->right_edge_offset_mm,
         (unsigned long)state->shift_every_layers);
-    value_card_set(&s_screen.shift_interval, value, HMI_COLOR_NEUTRAL);
+    value_card_set(&s_screen.applied_edge_offset, value, HMI_COLOR_NEUTRAL);
+
+    hmi_edge_trim_pair_t pending_trim;
+    bool trim_known = state->active_left_edge_trim_known &&
+                      state->active_right_edge_trim_known;
+    if (trim_known) {
+        int32_t active_left =
+            (int32_t)lroundf(state->active_left_edge_trim_mm * 100.0f);
+        int32_t active_right =
+            (int32_t)lroundf(state->active_right_edge_trim_mm * 100.0f);
+        char active_left_text[16];
+        char active_right_text[16];
+        format_trim_value(active_left_text, sizeof(active_left_text), active_left);
+        format_trim_value(active_right_text, sizeof(active_right_text), active_right);
+
+        if (hmi_edge_trim_pending_get(&pending_trim)) {
+            char pending_left_text[16];
+            char pending_right_text[16];
+            format_trim_value(
+                pending_left_text,
+                sizeof(pending_left_text),
+                pending_trim.left_centi_mm);
+            format_trim_value(
+                pending_right_text,
+                sizeof(pending_right_text),
+                pending_trim.right_centi_mm);
+            snprintf(
+                value,
+                sizeof(value),
+                "L %s > %s\nR %s > %s  PENDING",
+                active_left_text,
+                pending_left_text,
+                active_right_text,
+                pending_right_text);
+            value_card_set(&s_screen.edge_trim, value, HMI_COLOR_AMBER);
+        } else {
+            snprintf(
+                value,
+                sizeof(value),
+                "L %s mm   R %s mm",
+                active_left_text,
+                active_right_text);
+            value_card_set(&s_screen.edge_trim, value, HMI_COLOR_NEUTRAL);
+        }
+    } else {
+        value_card_set(&s_screen.edge_trim, "L --   R --", HMI_COLOR_DIM);
+    }
 
     /* Primary button: PAUSE / RESUME when actionable, otherwise a disabled
      * run-state indicator. STOPPING shows "STOPPING..." — never "FINISHING..." —
@@ -529,4 +599,14 @@ void screen_run_update(const hmi_state_t *state)
             lv_obj_add_flag(s_screen.secondary_button, LV_OBJ_FLAG_HIDDEN);
         }
     }
+
+    bool edge_trim_visible = machine_running || machine_paused;
+    set_button_dimmed(s_screen.edge_trim_button, !edge_trim_visible || any_pending);
+    if (edge_trim_visible) {
+        lv_obj_clear_flag(s_screen.edge_trim_button, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_screen.edge_trim_button, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    modal_edge_trim_update(state);
 }

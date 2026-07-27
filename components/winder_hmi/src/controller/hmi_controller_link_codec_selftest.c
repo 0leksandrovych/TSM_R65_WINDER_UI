@@ -6,6 +6,7 @@
 #include "hmi_controller_link_codec.h"
 #include "hmi_controller_messages.h"
 #include "hmi_link_state_mapper.h"
+#include "hmi_pending_command.h"
 #include "winder_link_contract.h"
 #include "winder_link_payload.h"
 #include "winder_link_protocol.h"
@@ -138,6 +139,88 @@ static bool test_encode_set_speed_override_frame_loopback(void)
            frame.payload_len == 2U &&
            frame.payload[0] == 0x52U &&
            frame.payload[1] == 0x03U;
+}
+
+static bool edge_trim_payload_matches(float left_trim_mm,
+                                      float right_trim_mm,
+                                      int32_t expected_left_centi_mm,
+                                      int32_t expected_right_centi_mm)
+{
+    hmi_controller_message_t message = {0};
+    if (!hmi_controller_message_init_edge_trim(
+            &message, left_trim_mm, right_trim_mm)) {
+        return false;
+    }
+
+    hmi_controller_link_encoded_t encoded = {0};
+    if (!hmi_controller_link_encode_message(&message, &encoded) ||
+        encoded.type != WINDER_LINK_MSG_APPLY_EDGE_TRIM ||
+        encoded.payload_len != LINK_EDGE_TRIM_PAYLOAD_ENCODED_SIZE) {
+        return false;
+    }
+
+    winder_link_payload_reader_t reader;
+    uint8_t count = 0U;
+    uint16_t left_id = 0U;
+    uint16_t right_id = 0U;
+    int32_t left_value = 0;
+    int32_t right_value = 0;
+    return winder_link_payload_reader_init(
+               &reader, encoded.payload, encoded.payload_len) &&
+           winder_link_payload_read_u8(&reader, &count) &&
+           count == LINK_EDGE_TRIM_PARAM_COUNT &&
+           winder_link_payload_read_u16_le(&reader, &left_id) &&
+           winder_link_payload_read_i32_le(&reader, &left_value) &&
+           winder_link_payload_read_u16_le(&reader, &right_id) &&
+           winder_link_payload_read_i32_le(&reader, &right_value) &&
+           left_id == LINK_PARAM_LEFT_EDGE_TRIM_MM &&
+           left_value == expected_left_centi_mm &&
+           right_id == LINK_PARAM_RIGHT_EDGE_TRIM_MM &&
+           right_value == expected_right_centi_mm &&
+           winder_link_payload_reader_done(&reader);
+}
+
+static bool test_encode_edge_trim_keyed_payload(void)
+{
+    return edge_trim_payload_matches(1.50f, -1.10f, 150, -110) &&
+           edge_trim_payload_matches(0.0f, 0.0f, 0, 0) &&
+           edge_trim_payload_matches(-3.75f, -2.50f, -375, -250);
+}
+
+static bool test_edge_trim_pending_semantics(void)
+{
+    hmi_edge_trim_pair_t pair = {0};
+    hmi_edge_trim_pending_clear();
+
+    hmi_edge_trim_pending_stage_candidate(150, -110);
+    if (!hmi_edge_trim_pending_has_candidate() ||
+        hmi_edge_trim_pending_is_valid()) {
+        return false;
+    }
+
+    hmi_edge_trim_pending_accept_candidate();
+    if (hmi_edge_trim_pending_has_candidate() ||
+        !hmi_edge_trim_pending_get(&pair) ||
+        pair.left_centi_mm != 150 || pair.right_centi_mm != -110) {
+        return false;
+    }
+
+    hmi_edge_trim_pending_reconcile(150, -109);
+    if (!hmi_edge_trim_pending_is_valid()) {
+        return false;
+    }
+
+    hmi_edge_trim_pending_stage_candidate(250, -210);
+    hmi_edge_trim_pending_reject_candidate();
+    if (hmi_edge_trim_pending_has_candidate() ||
+        !hmi_edge_trim_pending_get(&pair) ||
+        pair.left_centi_mm != 150 || pair.right_centi_mm != -110) {
+        return false;
+    }
+
+    hmi_edge_trim_pending_reconcile(150, -110);
+    return !hmi_edge_trim_pending_is_valid() &&
+           !hmi_edge_trim_pending_get(&pair);
 }
 
 static bool test_encode_start_job_keyed_payload(void)
@@ -398,6 +481,9 @@ static bool test_machine_state_numeric_contract(void)
            LINK_MACHINE_STATE_ALARM == 14 &&
            LINK_FIELD_TRAVEL_RANGE_MM == 8 &&
            LINK_FIELD_MASTER_SPEED_RPS == 9 &&
+           LINK_FIELD_ACTIVE_LEFT_EDGE_TRIM_MM == 18 &&
+           LINK_FIELD_ACTIVE_RIGHT_EDGE_TRIM_MM == 19 &&
+           WINDER_LINK_MSG_APPLY_EDGE_TRIM == 0x0D &&
            WINDER_LINK_MSG_ABORT_HOMING == 0x06;
 }
 
@@ -508,6 +594,21 @@ static bool test_decode_runtime_speed_values(void)
            decode_snapshot_fields(running_field, 1U, &running) &&
            running.data.state_snapshot.master_speed_rps_present &&
            running.data.state_snapshot.master_speed_rps == 6.25;
+}
+
+static bool test_decode_active_edge_trim_values(void)
+{
+    const snapshot_test_field_t fields[] = {
+        { LINK_FIELD_ACTIVE_LEFT_EDGE_TRIM_MM, 150 },
+        { LINK_FIELD_ACTIVE_RIGHT_EDGE_TRIM_MM, -110 },
+    };
+    hmi_controller_link_decoded_t decoded = {0};
+
+    return decode_snapshot_fields(fields, 2U, &decoded) &&
+           decoded.data.state_snapshot.active_left_edge_trim_mm_present &&
+           decoded.data.state_snapshot.active_left_edge_trim_mm == 1.5 &&
+           decoded.data.state_snapshot.active_right_edge_trim_mm_present &&
+           decoded.data.state_snapshot.active_right_edge_trim_mm == -1.1;
 }
 
 static bool test_decode_snapshot_truncated_payload_rejected(void)
@@ -628,6 +729,8 @@ bool hmi_controller_link_codec_selftest(void)
            test_encode_abort_homing_frame_loopback() &&
            test_encode_get_telemetry_frame() &&
            test_encode_set_speed_override_frame_loopback() &&
+           test_encode_edge_trim_keyed_payload() &&
+           test_edge_trim_pending_semantics() &&
            test_encode_start_job_keyed_payload() &&
            test_encode_start_job_invalid_wire_mapping_rejected() &&
            test_decode_command_accepted_frame_loopback() &&
@@ -636,6 +739,7 @@ bool hmi_controller_link_codec_selftest(void)
            test_machine_state_mapper() &&
            test_decode_state_snapshot_frame_loopback() &&
            test_decode_runtime_speed_values() &&
+           test_decode_active_edge_trim_values() &&
            test_decode_snapshot_truncated_payload_rejected() &&
            test_decode_travel_range_values() &&
            test_unknown_and_missing_fields() &&

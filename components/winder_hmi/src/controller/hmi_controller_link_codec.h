@@ -69,6 +69,12 @@ typedef struct {
     bool applied_right_edge_offset_mm_present;
     double applied_right_edge_offset_mm;
 
+    bool active_left_edge_trim_mm_present;
+    double active_left_edge_trim_mm;
+
+    bool active_right_edge_trim_mm_present;
+    double active_right_edge_trim_mm;
+
     bool job_winding_pitch_present;
     double job_winding_pitch;
 
