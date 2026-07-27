@@ -1,5 +1,6 @@
 #include "screen_run.h"
 
+#include <math.h>
 #include <stdio.h>
 
 #include "hmi_actions.h"
@@ -7,6 +8,8 @@
 #include "hmi_pending_command.h"
 #include "hmi_styles.h"
 #include "hmi_types.h"
+#include "modal_confirm.h"
+#include "modal_edge_trim.h"
 #include "widget_status_badge.h"
 
 typedef struct {
@@ -21,20 +24,18 @@ typedef struct {
     lv_obj_t *length_label;
     lv_obj_t *percent_label;
     lv_obj_t *progress_bar;
-    run_value_card_t master_speed;
-    run_value_card_t override;
-    run_value_card_t layer;
-    run_value_card_t edge;
-    run_value_card_t unwound;
-    run_value_card_t eta;
-    lv_obj_t *carriage_dot;
-    lv_obj_t *direction_label;
-    lv_obj_t *position_label;
-    lv_obj_t *right_edge_label;
-    lv_obj_t *pause_button;
-    lv_obj_t *pause_label;
-    lv_obj_t *stop_button;
-    lv_obj_t *stop_label;
+    run_value_card_t actual_speed;
+    run_value_card_t job_speed;
+    run_value_card_t winding_pitch;
+    run_value_card_t completed_layers;
+    run_value_card_t applied_edge_offset;
+    run_value_card_t edge_trim;
+    lv_obj_t *feedback_label;
+    lv_obj_t *primary_button;   /* PAUSE / RESUME (also shows run-state text) */
+    lv_obj_t *primary_label;
+    lv_obj_t *secondary_button; /* ABORT / FINISH JOB */
+    lv_obj_t *secondary_label;
+    lv_obj_t *edge_trim_button;
 } run_screen_t;
 
 static run_screen_t s_screen;
@@ -51,34 +52,71 @@ static void status_event_cb(lv_event_t *event)
     hmi_actions_open_diagnostics();
 }
 
-static void pause_event_cb(lv_event_t *event)
+static void primary_event_cb(lv_event_t *event)
 {
     (void)event;
+
     const hmi_state_t *state = hmi_model_get_state();
-    if (state != NULL && state->machine_state == HMI_MACHINE_PAUSED) {
-        hmi_actions_resume_job();
-    } else {
+    if (state == NULL || !state->machine_state_known) {
+        return;
+    }
+
+    /* Both actions re-check state and pending internally. */
+    if (state->machine_state == HMI_MACHINE_RUNNING) {
         hmi_actions_pause_job();
+    } else if (state->machine_state == HMI_MACHINE_PAUSED) {
+        hmi_actions_resume_job();
     }
 }
 
-static void speed_event_cb(lv_event_t *event)
+static void finish_confirm_cb(void *user_ctx)
 {
-    (void)event;
-    hmi_actions_placeholder_machine();
+    (void)user_ctx;
+    hmi_actions_finish_job();
 }
 
-static void stop_event_cb(lv_event_t *event)
+static void secondary_event_cb(lv_event_t *event)
 {
     (void)event;
-    hmi_actions_stop_job();
+
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL || !state->machine_state_known) {
+        return;
+    }
+
+    if (state->machine_state == HMI_MACHINE_PAUSED) {
+        /* FINISH JOB always confirms first; the job cannot be resumed after. */
+        const modal_confirm_config_t config = {
+            .title = "Finish current job?",
+            .body = "The current measured length and statistics will be saved. "
+                    "The job cannot be resumed afterward.",
+            .cancel_text = "CANCEL",
+            .confirm_text = "FINISH JOB",
+            .confirm_role = HMI_COLOR_AMBER,
+            .confirm_cb = finish_confirm_cb,
+        };
+        modal_confirm_open(&config);
+    } else {
+        /* ABORT is destructive but immediate — no confirmation. State and
+         * pending gating live entirely inside hmi_actions_abort_job(). */
+        hmi_actions_abort_job();
+    }
+}
+
+static void edge_trim_event_cb(lv_event_t *event)
+{
+    (void)event;
+    modal_edge_trim_open();
 }
 
 static void set_button_enabled_color(lv_obj_t *button, hmi_color_role_t role)
 {
     lv_obj_set_style_bg_color(button, hmi_color_for_role(role), 0);
     lv_obj_set_style_bg_color(button, hmi_palette_get()->panel_secondary, LV_STATE_PRESSED);
-    lv_obj_set_style_text_color(button, role == HMI_COLOR_AMBER ? hmi_palette_get()->device : lv_color_white(), 0);
+    lv_obj_set_style_text_color(
+        button,
+        role == HMI_COLOR_AMBER ? hmi_palette_get()->device : lv_color_white(),
+        0);
 }
 
 static void set_button_dimmed(lv_obj_t *button, bool dimmed)
@@ -88,30 +126,56 @@ static void set_button_dimmed(lv_obj_t *button, bool dimmed)
     }
 
     if (dimmed) {
+        lv_obj_clear_flag(button, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_state(button, LV_STATE_DISABLED);
         lv_obj_set_style_opa(button, LV_OPA_60, 0);
     } else {
+        lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_clear_state(button, LV_STATE_DISABLED);
         lv_obj_set_style_opa(button, LV_OPA_COVER, 0);
     }
 }
 
-static lv_obj_t *create_button(lv_obj_t *parent, const char *text, hmi_color_role_t role, lv_event_cb_t cb)
+static lv_obj_t *create_button(
+    lv_obj_t *parent,
+    const char *text,
+    int32_t width,
+    hmi_color_role_t role,
+    lv_event_cb_t cb)
 {
     hmi_styles_t *styles = hmi_styles_get();
 
     lv_obj_t *button = lv_btn_create(parent);
     lv_obj_remove_style_all(button);
     lv_obj_add_style(button, &styles->primary_button, 0);
-    lv_obj_set_size(button, 176, 52);
+    lv_obj_set_size(button, width, 52);
     set_button_enabled_color(button, role);
-    lv_obj_add_event_cb(button, cb, LV_EVENT_CLICKED, NULL);
+    if (cb != NULL) {
+        lv_obj_add_event_cb(button, cb, LV_EVENT_CLICKED, NULL);
+    }
 
     lv_obj_t *label = lv_label_create(button);
     lv_label_set_text(label, text);
     lv_obj_center(label);
 
     return button;
+}
+
+static void create_home_button(lv_obj_t *parent)
+{
+    hmi_styles_t *styles = hmi_styles_get();
+
+    lv_obj_t *button = lv_btn_create(parent);
+    lv_obj_remove_style_all(button);
+    lv_obj_add_style(button, &styles->nav_button, 0);
+    lv_obj_set_size(button, 180, 52);
+    lv_obj_set_style_bg_color(button, hmi_palette_get()->panel_secondary, 0);
+    lv_obj_set_style_bg_color(button, hmi_palette_get()->device, LV_STATE_PRESSED);
+    lv_obj_add_event_cb(button, back_event_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *label = lv_label_create(button);
+    lv_label_set_text(label, "HOME");
+    lv_obj_center(label);
 }
 
 static void create_topbar(lv_obj_t *root)
@@ -146,6 +210,13 @@ static void create_topbar(lv_obj_t *root)
     lv_obj_set_flex_grow(spacer, 1);
     lv_obj_set_size(spacer, 0, 1);
 
+    s_screen.feedback_label = lv_label_create(topbar);
+    lv_obj_add_style(s_screen.feedback_label, &styles->status_text, 0);
+    lv_label_set_long_mode(s_screen.feedback_label, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(s_screen.feedback_label, 150);
+    lv_obj_set_style_text_align(s_screen.feedback_label, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_text(s_screen.feedback_label, "");
+
     widget_status_badge_create(topbar, &s_screen.badge);
 
     lv_obj_t *status = lv_btn_create(topbar);
@@ -162,16 +233,16 @@ static void create_topbar(lv_obj_t *root)
     lv_obj_center(status_label);
 }
 
-static lv_obj_t *create_panel(lv_obj_t *parent, int32_t width, int32_t height, const char *title_text)
+static lv_obj_t *create_panel(lv_obj_t *parent, int32_t height, const char *title_text)
 {
     hmi_styles_t *styles = hmi_styles_get();
 
     lv_obj_t *panel = lv_obj_create(parent);
     lv_obj_remove_style_all(panel);
     lv_obj_add_style(panel, &styles->panel, 0);
-    lv_obj_set_size(panel, width, height);
+    lv_obj_set_size(panel, LV_PCT(100), height);
     lv_obj_set_flex_flow(panel, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_row(panel, 9, 0);
+    lv_obj_set_style_pad_row(panel, 6, 0);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *title = lv_label_create(panel);
@@ -188,18 +259,22 @@ static void value_card_create(lv_obj_t *parent, run_value_card_t *card, const ch
     card->root = lv_obj_create(parent);
     lv_obj_remove_style_all(card->root);
     lv_obj_add_style(card->root, &styles->panel_secondary, 0);
-    lv_obj_set_size(card->root, 204, 58);
+    lv_obj_set_size(card->root, 243, 76);
     lv_obj_set_flex_flow(card->root, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(card->root, 8, 0);
-    lv_obj_set_style_pad_row(card->root, 3, 0);
+    lv_obj_set_style_pad_row(card->root, 4, 0);
     lv_obj_clear_flag(card->root, LV_OBJ_FLAG_SCROLLABLE);
 
     card->label = lv_label_create(card->root);
     lv_obj_add_style(card->label, &styles->panel_title, 0);
+    lv_label_set_long_mode(card->label, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(card->label, LV_PCT(100));
     lv_label_set_text(card->label, label_text);
 
     card->value = lv_label_create(card->root);
     lv_obj_add_style(card->value, &styles->stat_value, 0);
+    lv_label_set_long_mode(card->value, LV_LABEL_LONG_DOT);
+    lv_obj_set_width(card->value, LV_PCT(100));
     lv_label_set_text(card->value, "--");
 }
 
@@ -223,30 +298,33 @@ void screen_run_create(lv_obj_t *root)
 
     lv_obj_t *content = lv_obj_create(root);
     lv_obj_remove_style_all(content);
-    lv_obj_set_size(content, LV_PCT(100), HMI_DISPLAY_HEIGHT - HMI_TOPBAR_HEIGHT - 76);
+    lv_obj_set_size(content, LV_PCT(100), HMI_DISPLAY_HEIGHT - HMI_TOPBAR_HEIGHT - 70);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_all(content, 14, 0);
+    lv_obj_set_style_pad_all(content, 12, 0);
     lv_obj_set_style_pad_row(content, 10, 0);
     lv_obj_clear_flag(content, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *progress = create_panel(content, LV_PCT(100), 86, "PROGRESS");
-    lv_obj_set_style_pad_row(progress, 6, 0);
+    lv_obj_t *progress = create_panel(content, 108, "WINDING PROGRESS");
 
     lv_obj_t *length_row = lv_obj_create(progress);
     lv_obj_remove_style_all(length_row);
-    lv_obj_set_size(length_row, LV_PCT(100), 30);
+    lv_obj_set_size(length_row, LV_PCT(100), 24);
     lv_obj_set_flex_flow(length_row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(length_row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_flex_align(
+        length_row,
+        LV_FLEX_ALIGN_SPACE_BETWEEN,
+        LV_FLEX_ALIGN_CENTER,
+        LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(length_row, LV_OBJ_FLAG_SCROLLABLE);
 
     s_screen.length_label = lv_label_create(length_row);
     lv_obj_add_style(s_screen.length_label, &styles->status_text, 0);
-    lv_label_set_text(s_screen.length_label, "0.0 / 125.0 m");
+    lv_label_set_text(s_screen.length_label, "0.000 / -- m");
 
     s_screen.percent_label = lv_label_create(length_row);
     lv_obj_add_style(s_screen.percent_label, &styles->status_text, 0);
-    lv_obj_set_style_text_color(s_screen.percent_label, hmi_palette_get()->green, 0);
-    lv_label_set_text(s_screen.percent_label, "0%");
+    lv_obj_set_style_text_color(s_screen.percent_label, hmi_palette_get()->text_dim, 0);
+    lv_label_set_text(s_screen.percent_label, "--");
 
     s_screen.progress_bar = lv_bar_create(progress);
     lv_obj_set_size(s_screen.progress_bar, LV_PCT(100), 14);
@@ -254,92 +332,55 @@ void screen_run_create(lv_obj_t *root)
     lv_obj_set_style_bg_color(s_screen.progress_bar, hmi_palette_get()->panel_secondary, 0);
     lv_obj_set_style_border_width(s_screen.progress_bar, 1, 0);
     lv_obj_set_style_border_color(s_screen.progress_bar, hmi_palette_get()->border_strong, 0);
-    lv_obj_set_style_bg_color(s_screen.progress_bar, hmi_palette_get()->green, LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(s_screen.progress_bar, hmi_palette_get()->text_dim, LV_PART_INDICATOR);
 
-    lv_obj_t *mid = lv_obj_create(content);
-    lv_obj_remove_style_all(mid);
-    lv_obj_set_size(mid, LV_PCT(100), 226);
-    lv_obj_set_flex_flow(mid, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_column(mid, 10, 0);
-    lv_obj_clear_flag(mid, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *stats = create_panel(mid, 444, LV_PCT(100), "RUNTIME VALUES");
-    lv_obj_t *card_grid = lv_obj_create(stats);
+    lv_obj_t *metrics = create_panel(content, 214, "RUNTIME VALUES");
+    lv_obj_t *card_grid = lv_obj_create(metrics);
     lv_obj_remove_style_all(card_grid);
-    lv_obj_set_size(card_grid, LV_PCT(100), 190);
+    lv_obj_set_size(card_grid, LV_PCT(100), 164);
     lv_obj_set_flex_flow(card_grid, LV_FLEX_FLOW_ROW_WRAP);
     lv_obj_set_style_pad_row(card_grid, 8, 0);
     lv_obj_set_style_pad_column(card_grid, 8, 0);
     lv_obj_clear_flag(card_grid, LV_OBJ_FLAG_SCROLLABLE);
 
-    value_card_create(card_grid, &s_screen.master_speed, "MASTER SPEED");
-    value_card_create(card_grid, &s_screen.override, "SPEED OVERRIDE");
-    value_card_create(card_grid, &s_screen.layer, "CURRENT LAYER");
-    value_card_create(card_grid, &s_screen.edge, "RIGHT EDGE OFFSET");
-    value_card_create(card_grid, &s_screen.unwound, "UNWOUND FIBER");
-    value_card_create(card_grid, &s_screen.eta, "ETA");
-
-    lv_obj_t *carriage = create_panel(mid, 318, LV_PCT(100), "CARRIAGE");
-
-    lv_obj_t *track = lv_obj_create(carriage);
-    lv_obj_remove_style_all(track);
-    lv_obj_set_size(track, LV_PCT(100), 128);
-    lv_obj_set_style_bg_color(track, hmi_palette_get()->panel_secondary, 0);
-    lv_obj_set_style_bg_opa(track, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(track, 1, 0);
-    lv_obj_set_style_border_color(track, hmi_palette_get()->border, 0);
-    lv_obj_clear_flag(track, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *rail = lv_obj_create(track);
-    lv_obj_remove_style_all(rail);
-    lv_obj_set_size(rail, 250, 4);
-    lv_obj_set_style_bg_color(rail, hmi_palette_get()->border_strong, 0);
-    lv_obj_set_style_bg_opa(rail, LV_OPA_COVER, 0);
-    lv_obj_align(rail, LV_ALIGN_CENTER, 0, -4);
-
-    s_screen.carriage_dot = lv_obj_create(track);
-    lv_obj_remove_style_all(s_screen.carriage_dot);
-    lv_obj_set_size(s_screen.carriage_dot, 18, 18);
-    lv_obj_set_style_radius(s_screen.carriage_dot, 9, 0);
-    lv_obj_set_style_bg_color(s_screen.carriage_dot, hmi_palette_get()->blue, 0);
-    lv_obj_set_style_bg_opa(s_screen.carriage_dot, LV_OPA_COVER, 0);
-
-    s_screen.direction_label = lv_label_create(track);
-    lv_obj_add_style(s_screen.direction_label, &styles->status_text, 0);
-    lv_obj_set_style_text_color(s_screen.direction_label, hmi_palette_get()->blue, 0);
-    lv_label_set_text(s_screen.direction_label, ">");
-
-    lv_obj_t *left_edge = lv_label_create(track);
-    lv_obj_add_style(left_edge, &styles->topbar_text, 0);
-    lv_label_set_text(left_edge, "0.0 mm");
-    lv_obj_align(left_edge, LV_ALIGN_BOTTOM_LEFT, 12, -8);
-
-    s_screen.right_edge_label = lv_label_create(track);
-    lv_obj_add_style(s_screen.right_edge_label, &styles->topbar_text, 0);
-    lv_label_set_text(s_screen.right_edge_label, "250.0 mm");
-    lv_obj_align(s_screen.right_edge_label, LV_ALIGN_BOTTOM_RIGHT, -12, -8);
-
-    s_screen.position_label = lv_label_create(carriage);
-    lv_obj_add_style(s_screen.position_label, &styles->stat_value, 0);
-    lv_obj_set_style_text_color(s_screen.position_label, hmi_palette_get()->blue, 0);
-    lv_label_set_text(s_screen.position_label, "Position 0.0 mm");
-    lv_obj_set_width(s_screen.position_label, LV_PCT(100));
-    lv_obj_set_style_text_align(s_screen.position_label, LV_TEXT_ALIGN_CENTER, 0);
+    value_card_create(card_grid, &s_screen.actual_speed, "ACTUAL SPEED");
+    value_card_create(card_grid, &s_screen.job_speed, "JOB SPEED");
+    value_card_create(card_grid, &s_screen.winding_pitch, "WINDING PITCH");
+    value_card_create(card_grid, &s_screen.completed_layers, "COMPLETED LAYERS");
+    value_card_create(card_grid, &s_screen.applied_edge_offset, "CONICAL OFFSET / INTERVAL");
+    value_card_create(card_grid, &s_screen.edge_trim, "EDGE TRIM");
+    lv_obj_add_style(s_screen.edge_trim.value, &styles->status_text, 0);
 
     lv_obj_t *buttons = lv_obj_create(root);
     lv_obj_remove_style_all(buttons);
-    lv_obj_set_size(buttons, LV_PCT(100), 76);
+    lv_obj_set_size(buttons, LV_PCT(100), 70);
     lv_obj_set_flex_flow(buttons, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(buttons, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(buttons, 12, 0);
     lv_obj_clear_flag(buttons, LV_OBJ_FLAG_SCROLLABLE);
 
-    s_screen.pause_button = create_button(buttons, "PAUSE", HMI_COLOR_AMBER, pause_event_cb);
-    s_screen.pause_label = lv_obj_get_child(s_screen.pause_button, 0);
-    create_button(buttons, "SPEED", HMI_COLOR_BLUE, speed_event_cb);
-    s_screen.stop_button = create_button(buttons, "STOP", HMI_COLOR_RED, stop_event_cb);
-    s_screen.stop_label = lv_obj_get_child(s_screen.stop_button, 0);
-    create_button(buttons, "HOME", HMI_COLOR_DIM, back_event_cb);
+    s_screen.primary_button = create_button(buttons, "PAUSE", 200, HMI_COLOR_AMBER, primary_event_cb);
+    s_screen.primary_label = lv_obj_get_child(s_screen.primary_button, 0);
+    s_screen.secondary_button = create_button(buttons, "ABORT", 200, HMI_COLOR_RED, secondary_event_cb);
+    s_screen.secondary_label = lv_obj_get_child(s_screen.secondary_button, 0);
+    s_screen.edge_trim_button = create_button(
+        buttons, "EDGE TRIM", 160, HMI_COLOR_BLUE, edge_trim_event_cb);
+    create_home_button(buttons);
+
+    set_button_dimmed(s_screen.primary_button, true);
+    set_button_dimmed(s_screen.secondary_button, true);
+    set_button_dimmed(s_screen.edge_trim_button, true);
+}
+
+static void format_trim_value(char *buffer, size_t buffer_size, int32_t centi_mm)
+{
+    if (centi_mm == 0) {
+        snprintf(buffer, buffer_size, "0.0");
+    } else if ((centi_mm % 10) == 0) {
+        snprintf(buffer, buffer_size, "%+.1f", (double)centi_mm / 100.0);
+    } else {
+        snprintf(buffer, buffer_size, "%+.2f", (double)centi_mm / 100.0);
+    }
 }
 
 void screen_run_update(const hmi_state_t *state)
@@ -348,74 +389,224 @@ void screen_run_update(const hmi_state_t *state)
         return;
     }
 
-    char value[40];
-    widget_status_badge_update(&s_screen.badge, state->machine_state);
+    char value[96];
+    widget_status_badge_update(&s_screen.badge, state);
     hmi_pending_command_t pending = hmi_pending_command_get();
+    bool any_pending = hmi_pending_command_is_active();
     bool pause_pending = pending == HMI_PENDING_PAUSE_JOB;
     bool resume_pending = pending == HMI_PENDING_RESUME_JOB;
-    bool stop_pending = pending == HMI_PENDING_STOP_JOB;
+    bool abort_pending = pending == HMI_PENDING_ABORT_JOB;
+    bool finish_pending = pending == HMI_PENDING_FINISH_JOB;
+    bool machine_accelerating = state->machine_state_known &&
+                                state->machine_state == HMI_MACHINE_ACCELERATING;
+    bool machine_running = state->machine_state_known &&
+                           state->machine_state == HMI_MACHINE_RUNNING;
+    bool machine_paused = state->machine_state_known &&
+                          state->machine_state == HMI_MACHINE_PAUSED;
+    bool machine_stopping = state->machine_state_known &&
+                            state->machine_state == HMI_MACHINE_STOPPING;
 
-    snprintf(value, sizeof(value), "%.1f / %.1f m", (double)state->wound_length_m, (double)state->target_length_m);
-    lv_label_set_text(s_screen.length_label, value);
-    snprintf(value, sizeof(value), "%.0f%%", (double)state->progress_percent);
-    lv_label_set_text(s_screen.percent_label, value);
-    lv_bar_set_value(s_screen.progress_bar, (int32_t)state->progress_percent, LV_ANIM_OFF);
-
-    snprintf(value, sizeof(value), "%.1f rps", (double)state->master_speed_rps);
-    value_card_set(&s_screen.master_speed, value, HMI_COLOR_GREEN);
-    snprintf(value, sizeof(value), "%.0f %%", (double)state->speed_override_percent);
-    value_card_set(&s_screen.override, value, HMI_COLOR_BLUE);
-    snprintf(value, sizeof(value), "%lu", (unsigned long)state->current_layer);
-    value_card_set(&s_screen.layer, value, HMI_COLOR_NEUTRAL);
-    snprintf(value, sizeof(value), "%.1f mm", (double)state->right_edge_offset_mm);
-    value_card_set(&s_screen.edge, value, HMI_COLOR_NEUTRAL);
-    snprintf(value, sizeof(value), "%.1f m", (double)state->unwound_length_m);
-    value_card_set(&s_screen.unwound, value, HMI_COLOR_NEUTRAL);
-    snprintf(value, sizeof(value), "%.1f min", (double)state->eta_min);
-    value_card_set(&s_screen.eta, value, HMI_COLOR_NEUTRAL);
-
-    float range = state->travel_range_mm > 1.0f ? state->travel_range_mm : 250.0f;
-    int32_t x = 22 + (int32_t)((state->carriage_position_mm / range) * 250.0f);
-    if (x < 22) {
-        x = 22;
-    } else if (x > 272) {
-        x = 272;
-    }
-    lv_obj_set_pos(s_screen.carriage_dot, x, 52);
-    lv_obj_set_pos(s_screen.direction_label, x + 12, 44);
-
-    if (state->carriage_direction == HMI_CARRIAGE_LEFT) {
-        lv_label_set_text(s_screen.direction_label, "<");
-    } else if (state->carriage_direction == HMI_CARRIAGE_RIGHT) {
-        lv_label_set_text(s_screen.direction_label, ">");
-    } else {
-        lv_label_set_text(s_screen.direction_label, "STOP");
+    if (s_screen.feedback_label != NULL) {
+        bool has_error = state->last_error != NULL && state->last_error[0] != '\0';
+        lv_label_set_text(s_screen.feedback_label, has_error ? state->last_error : "");
+        lv_obj_set_style_text_color(
+            s_screen.feedback_label,
+            has_error ? hmi_palette_get()->red : hmi_palette_get()->text_dim,
+            0);
     }
 
-    snprintf(value, sizeof(value), "%.1f mm", (double)range);
-    lv_label_set_text(s_screen.right_edge_label, value);
-    lv_obj_align(s_screen.right_edge_label, LV_ALIGN_BOTTOM_RIGHT, -12, -8);
-
-    snprintf(value, sizeof(value), "Position %.1f mm", (double)state->carriage_position_mm);
-    lv_label_set_text(s_screen.position_label, value);
-
-    if (s_screen.pause_label != NULL) {
-        bool paused = state->machine_state == HMI_MACHINE_PAUSED;
-        if (pause_pending) {
-            lv_label_set_text(s_screen.pause_label, "PAUSING...");
-        } else if (resume_pending) {
-            lv_label_set_text(s_screen.pause_label, "RESUMING...");
-        } else {
-            lv_label_set_text(s_screen.pause_label, paused ? "RESUME" : "PAUSE");
+    bool target_available = state->target_length_known && state->target_length_m > 0.0f;
+    double calculated_percent = 0.0;
+    if (target_available) {
+        calculated_percent = ((double)state->wound_length_m / (double)state->target_length_m) * 100.0;
+        if (calculated_percent < 0.0) {
+            calculated_percent = 0.0;
+        } else if (calculated_percent > 100.0) {
+            calculated_percent = 100.0;
         }
-        lv_obj_center(s_screen.pause_label);
-        set_button_enabled_color(s_screen.pause_button, paused ? HMI_COLOR_GREEN : HMI_COLOR_AMBER);
-        set_button_dimmed(s_screen.pause_button, pause_pending || resume_pending || stop_pending);
+
+        snprintf(
+            value,
+            sizeof(value),
+            "%.3f / %.3f m",
+            (double)state->wound_length_m,
+            (double)state->target_length_m);
+        lv_label_set_text(s_screen.length_label, value);
+        lv_obj_set_style_text_color(s_screen.length_label, hmi_palette_get()->text, 0);
+
+        snprintf(value, sizeof(value), "%.0f%%", calculated_percent);
+        lv_label_set_text(s_screen.percent_label, value);
+        lv_obj_set_style_text_color(s_screen.percent_label, hmi_palette_get()->green, 0);
+        lv_obj_set_style_bg_color(s_screen.progress_bar, hmi_palette_get()->green, LV_PART_INDICATOR);
+    } else {
+        snprintf(value, sizeof(value), "%.3f / -- m", (double)state->wound_length_m);
+        lv_label_set_text(s_screen.length_label, value);
+        lv_obj_set_style_text_color(s_screen.length_label, hmi_palette_get()->text_dim, 0);
+        lv_label_set_text(s_screen.percent_label, "--");
+        lv_obj_set_style_text_color(s_screen.percent_label, hmi_palette_get()->text_dim, 0);
+        lv_obj_set_style_bg_color(s_screen.progress_bar, hmi_palette_get()->text_dim, LV_PART_INDICATOR);
+    }
+    lv_bar_set_value(s_screen.progress_bar, (int32_t)(calculated_percent + 0.5), LV_ANIM_OFF);
+
+    if (state->master_speed_known) {
+        snprintf(value, sizeof(value), "%.2f rps", (double)state->master_speed_rps);
+        value_card_set(&s_screen.actual_speed, value, HMI_COLOR_GREEN);
+    } else {
+        value_card_set(&s_screen.actual_speed, "--", HMI_COLOR_DIM);
     }
 
-    if (s_screen.stop_label != NULL) {
-        lv_label_set_text(s_screen.stop_label, stop_pending ? "STOPPING..." : "STOP");
-        lv_obj_center(s_screen.stop_label);
-        set_button_dimmed(s_screen.stop_button, stop_pending || pause_pending || resume_pending);
+    if (state->job_master_speed_known) {
+        snprintf(value, sizeof(value), "%.2f rps", (double)state->job_master_speed_rps);
+        value_card_set(&s_screen.job_speed, value, HMI_COLOR_BLUE);
+    } else {
+        value_card_set(&s_screen.job_speed, "--", HMI_COLOR_DIM);
     }
+
+    if (state->winding_pitch_known) {
+        snprintf(value, sizeof(value), "%.3f mm", (double)state->winding_pitch_mm);
+        value_card_set(&s_screen.winding_pitch, value, HMI_COLOR_NEUTRAL);
+    } else {
+        value_card_set(&s_screen.winding_pitch, "--", HMI_COLOR_DIM);
+    }
+
+    snprintf(value, sizeof(value), "%lu", (unsigned long)state->current_layer);
+    value_card_set(&s_screen.completed_layers, value, HMI_COLOR_NEUTRAL);
+
+    snprintf(
+        value,
+        sizeof(value),
+        state->shift_every_layers == 1U
+            ? "%+.2f mm / %lu layer"
+            : "%+.2f mm / %lu layers",
+        (double)state->right_edge_offset_mm,
+        (unsigned long)state->shift_every_layers);
+    value_card_set(&s_screen.applied_edge_offset, value, HMI_COLOR_NEUTRAL);
+
+    hmi_edge_trim_pair_t pending_trim;
+    bool trim_known = state->active_left_edge_trim_known &&
+                      state->active_right_edge_trim_known;
+    if (trim_known) {
+        int32_t active_left =
+            (int32_t)lroundf(state->active_left_edge_trim_mm * 100.0f);
+        int32_t active_right =
+            (int32_t)lroundf(state->active_right_edge_trim_mm * 100.0f);
+        char active_left_text[16];
+        char active_right_text[16];
+        format_trim_value(active_left_text, sizeof(active_left_text), active_left);
+        format_trim_value(active_right_text, sizeof(active_right_text), active_right);
+
+        if (hmi_edge_trim_pending_get(&pending_trim)) {
+            char pending_left_text[16];
+            char pending_right_text[16];
+            format_trim_value(
+                pending_left_text,
+                sizeof(pending_left_text),
+                pending_trim.left_centi_mm);
+            format_trim_value(
+                pending_right_text,
+                sizeof(pending_right_text),
+                pending_trim.right_centi_mm);
+            snprintf(
+                value,
+                sizeof(value),
+                "L %s > %s\nR %s > %s  PENDING",
+                active_left_text,
+                pending_left_text,
+                active_right_text,
+                pending_right_text);
+            value_card_set(&s_screen.edge_trim, value, HMI_COLOR_AMBER);
+        } else {
+            snprintf(
+                value,
+                sizeof(value),
+                "L %s mm   R %s mm",
+                active_left_text,
+                active_right_text);
+            value_card_set(&s_screen.edge_trim, value, HMI_COLOR_NEUTRAL);
+        }
+    } else {
+        value_card_set(&s_screen.edge_trim, "L --   R --", HMI_COLOR_DIM);
+    }
+
+    /* Primary button: PAUSE / RESUME when actionable, otherwise a disabled
+     * run-state indicator. STOPPING shows "STOPPING..." — never "FINISHING..." —
+     * because the STOPPING machine state is also used while pausing. */
+    if (s_screen.primary_label != NULL) {
+        const char *text = "PAUSE";
+        hmi_color_role_t color = HMI_COLOR_AMBER;
+        bool enabled = false;
+
+        if (pause_pending) {
+            text = "PAUSING...";
+        } else if (resume_pending) {
+            text = "RESUMING...";
+            color = HMI_COLOR_GREEN;
+        } else if (machine_running) {
+            text = "PAUSE";
+            enabled = !any_pending;
+        } else if (machine_paused) {
+            text = "RESUME";
+            color = HMI_COLOR_GREEN;
+            enabled = !any_pending;
+        } else if (machine_accelerating) {
+            text = "STARTING...";
+        } else if (machine_stopping) {
+            text = "STOPPING...";
+        }
+
+        lv_label_set_text(s_screen.primary_label, text);
+        lv_obj_center(s_screen.primary_label);
+        set_button_enabled_color(s_screen.primary_button, color);
+        set_button_dimmed(s_screen.primary_button, !enabled);
+    }
+
+    /* Secondary button: destructive ABORT while in motion, or FINISH JOB while
+     * PAUSED (ABORT is hidden there). Repeated presses are blocked by dimming;
+     * the exception is STOPPING, where ABORT stays available so a decelerating
+     * PAUSE can still be escalated to an abort. */
+    if (s_screen.secondary_label != NULL) {
+        const char *text = "ABORT";
+        hmi_color_role_t color = HMI_COLOR_RED;
+        bool enabled = false;
+        bool visible = true;
+
+        if (abort_pending) {
+            text = "ABORTING...";
+        } else if (finish_pending) {
+            text = "FINISHING...";
+            color = HMI_COLOR_AMBER;
+        } else if (machine_paused) {
+            text = "FINISH JOB";
+            color = HMI_COLOR_AMBER;
+            enabled = !any_pending;
+        } else if (machine_accelerating || machine_running) {
+            text = "ABORT";
+            enabled = !any_pending;
+        } else if (machine_stopping) {
+            text = "ABORT";
+            enabled = !any_pending || pause_pending;
+        } else {
+            visible = false;
+        }
+
+        lv_label_set_text(s_screen.secondary_label, text);
+        lv_obj_center(s_screen.secondary_label);
+        set_button_enabled_color(s_screen.secondary_button, color);
+        set_button_dimmed(s_screen.secondary_button, !enabled);
+        if (visible) {
+            lv_obj_clear_flag(s_screen.secondary_button, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(s_screen.secondary_button, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    bool edge_trim_visible = machine_running || machine_paused;
+    set_button_dimmed(s_screen.edge_trim_button, !edge_trim_visible || any_pending);
+    if (edge_trim_visible) {
+        lv_obj_clear_flag(s_screen.edge_trim_button, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(s_screen.edge_trim_button, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    modal_edge_trim_update(state);
 }

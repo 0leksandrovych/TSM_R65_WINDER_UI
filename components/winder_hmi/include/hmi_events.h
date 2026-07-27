@@ -24,19 +24,31 @@ typedef enum {
 
     HMI_CMD_PAUSE_JOB,
     HMI_CMD_RESUME_JOB,
-    HMI_CMD_STOP_JOB,
+    HMI_CMD_ABORT_JOB,
+    HMI_CMD_FINISH_JOB,
+    HMI_CMD_RESET_JOB,
 
     HMI_CMD_SET_SPEED_OVERRIDE,
     HMI_CMD_APPLY_EDGE_TRIM,
 
     HMI_CMD_RESET_UNWOUND_COUNTER,
-    HMI_CMD_RESET_ALARM
+    HMI_CMD_RESET_ALARM,
+
+    HMI_CMD_HOMING_NEXT_MEASUREMENT,
+    HMI_CMD_MOVE_CARRIAGE_TO_ZERO,
+    HMI_CMD_MOVE_CARRIAGE_TO_LEFT_EDGE
 } hmi_command_t;
+
+typedef struct {
+    float left_trim_mm;
+    float right_trim_mm;
+} hmi_edge_trim_request_t;
 
 typedef struct {
     hmi_job_mode_id_t mode_id;
     uint16_t param_id;
     hmi_param_value_t value;
+    hmi_edge_trim_request_t edge_trim;
 } hmi_command_payload_t;
 
 typedef enum {

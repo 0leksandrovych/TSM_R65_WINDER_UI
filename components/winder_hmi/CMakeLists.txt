@@ -3,10 +3,17 @@ idf_component_register(
         "src/winder_hmi.c"
         "src/hmi_coordinator.c"
         "src/hmi_model.c"
+        "src/hmi_state_helpers.c"
         "src/hmi_command_bus.c"
         "src/hmi_pending_command.c"
         "src/hmi_event_queue.c"
         "src/controller/hmi_controller_messages.c"
+        "src/controller/hmi_controller_rx_queue.c"
+        "src/controller/hmi_controller_rx_handler.c"
+        "src/controller/hmi_link_state_mapper.c"
+        "src/controller/hmi_controller_link_codec.c"
+        "src/controller/hmi_controller_link_codec_selftest.c"
+        "src/controller/hmi_uart_transport.c"
         "src/controller/hmi_controller_transport.c"
         "src/controller/hmi_controller_client.c"
         "src/controller/hmi_mock_controller.c"
@@ -20,12 +27,15 @@ idf_component_register(
         "src/widgets/widget_status_badge.c"
         "src/widgets/widget_stat_row.c"
         "src/modals/modal_numeric_keypad.c"
+        "src/modals/modal_confirm.c"
+        "src/modals/modal_edge_trim.c"
         "src/screens/screen_home.c"
         "src/screens/screen_jobs.c"
         "src/screens/screen_conical_setup.c"
         "src/screens/screen_confirm_start.c"
         "src/screens/screen_homing.c"
         "src/screens/screen_run.c"
+        "src/screens/screen_finished.c"
         "src/screens/screen_diagnostics.c"
         "src/screens/screen_settings.c"
         "src/demo/hmi_demo_state.c"
@@ -45,4 +55,7 @@ idf_component_register(
         lvgl__lvgl
         freertos
         log
+    PRIV_REQUIRES
+        winder_link_protocol
+        esp_driver_uart
 )

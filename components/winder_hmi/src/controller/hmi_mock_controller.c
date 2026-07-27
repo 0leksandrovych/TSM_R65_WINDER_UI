@@ -25,6 +25,7 @@ typedef enum {
     MOCK_OP_PAUSE_JOB,
     MOCK_OP_RESUME_JOB,
     MOCK_OP_STOP_JOB,
+    MOCK_OP_RESET_JOB,
     MOCK_OP_RESET_UNWOUND_COUNTER,
     MOCK_OP_RESET_ALARM,
 } mock_operation_t;
@@ -40,35 +41,46 @@ static mock_operation_t s_pending_op;
 static uint32_t s_pending_elapsed_ms;
 static uint32_t s_pending_delay_ms;
 static hmi_controller_message_t s_pending_message;
+static bool s_edge_trim_staged;
+static float s_staged_left_edge_trim_mm;
+static float s_staged_right_edge_trim_mm;
 
 static const hmi_state_t s_ready_state = {
     .machine_state          = HMI_MACHINE_HOMING_REQUIRED,
-    .homing_state           = HMI_HOMING_REQUIRED,
+    .machine_state_known    = true,
     .job_state              = HMI_JOB_NOT_CONFIGURED,
     .selected_mode          = "Conical Winding",
-    .homing_step            = "Ready to start",
     .unwound_length_m       = 0.0f,
     .wound_length_m         = 0.0f,
     .target_length_m        = 125.0f,
+    .target_length_known    = true,
     .progress_percent       = 0.0f,
     .carriage_position_mm   = 0.0f,
-    .travel_range_mm        = 250.0f,
+    .travel_range_mm        = 0.0,
+    .travel_range_known     = false,
+    .job_master_speed_rps   = 0.0f,
+    .job_master_speed_known = false,
     .master_speed_rps       = 0.0f,
+    .master_speed_known     = true,
+    .winding_pitch_mm       = 0.0f,
+    .winding_pitch_known    = false,
     .speed_override_percent = 100.0f,
     .right_edge_offset_mm   = 0.0f,
+    .active_left_edge_trim_mm = 0.0f,
+    .active_left_edge_trim_known = true,
+    .active_right_edge_trim_mm = 0.0f,
+    .active_right_edge_trim_known = true,
     .eta_min                = 0.0f,
     .current_layer          = 0,
     .encoder_count          = 0,
     .carriage_direction     = HMI_CARRIAGE_STOPPED,
-    .left_limit_active      = false,
-    .right_limit_active     = false,
     .motor_state            = "Idle",
     .last_event             = "Mock controller ready",
     .last_error             = NULL,
     .safety_ok              = true,
 };
 
-static bool mock_send(const hmi_controller_message_t *message, void *user_ctx);
+static bool mock_send(const hmi_controller_message_t *message, uint16_t seq, void *user_ctx);
 
 static const hmi_controller_transport_t s_transport = {
     .send     = mock_send,
@@ -104,7 +116,7 @@ static bool payload_value_by_key(const hmi_controller_job_payload_t *job,
     }
 
     for (size_t i = 0; i < job->param_count; i++) {
-        if (job->params[i].param_id == descriptor->id &&
+        if (job->params[i].wire_param_id == descriptor->wire.param_id &&
             job->params[i].type == descriptor->type) {
             *out_value = job->params[i].value;
             *out_descriptor = descriptor;
@@ -166,7 +178,7 @@ static bool validate_job_payload(const hmi_controller_job_payload_t *job,
         bool found = false;
 
         for (size_t j = 0; j < job->param_count; j++) {
-            if (job->params[j].param_id == descriptor->id &&
+            if (job->params[j].wire_param_id == descriptor->wire.param_id &&
                 job->params[j].type == descriptor->type) {
                 value = job->params[j].value;
                 found = true;
@@ -265,8 +277,11 @@ static bool command_for_message_type(hmi_controller_msg_type_t type,
     case HMI_CONTROLLER_MSG_RESUME_JOB:
         *out_command = HMI_CMD_RESUME_JOB;
         return true;
-    case HMI_CONTROLLER_MSG_STOP_JOB:
-        *out_command = HMI_CMD_STOP_JOB;
+    case HMI_CONTROLLER_MSG_ABORT_JOB:
+        *out_command = HMI_CMD_ABORT_JOB;
+        return true;
+    case HMI_CONTROLLER_MSG_RESET_JOB:
+        *out_command = HMI_CMD_RESET_JOB;
         return true;
     case HMI_CONTROLLER_MSG_RESET_ALARM:
         *out_command = HMI_CMD_RESET_ALARM;
@@ -280,6 +295,7 @@ static bool command_for_message_type(hmi_controller_msg_type_t type,
     case HMI_CONTROLLER_MSG_APPLY_EDGE_TRIM:
         *out_command = HMI_CMD_APPLY_EDGE_TRIM;
         return true;
+    case HMI_CONTROLLER_MSG_GET_TELEMETRY:
     case HMI_CONTROLLER_MSG_GET_CAPABILITIES:
     case HMI_CONTROLLER_MSG_NONE:
     default:
@@ -292,13 +308,11 @@ static void enter_homing(void)
     s_homing_active = true;
     s_run_active    = false;
     s_homing_elapsed_ms = 0;
-    s_state.machine_state       = HMI_MACHINE_HOMING_REQUIRED;
-    s_state.homing_state        = HMI_HOMING_IN_PROGRESS;
-    s_state.homing_step         = "Moving to left limit";
-    s_state.left_limit_active   = false;
-    s_state.right_limit_active  = false;
+    s_state.machine_state       = HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE;
+    s_state.machine_state_known = true;
     s_state.carriage_position_mm = 125.0f;
-    s_state.travel_range_mm     = 250.0f;
+    s_state.travel_range_mm     = 0.0;
+    s_state.travel_range_known  = false;
     s_state.master_speed_rps    = 0.0f;
     s_state.carriage_direction  = HMI_CARRIAGE_STOPPED;
     s_state.motor_state         = "Homing";
@@ -311,12 +325,10 @@ static void finish_homing(void)
 {
     s_homing_active = false;
     s_state.machine_state        = HMI_MACHINE_READY;
-    s_state.homing_state         = HMI_HOMING_OK;
-    s_state.homing_step          = "Complete";
+    s_state.machine_state_known  = true;
     s_state.carriage_position_mm = 0.0f;
-    s_state.travel_range_mm      = 250.0f;
-    s_state.left_limit_active    = true;
-    s_state.right_limit_active   = false;
+    s_state.travel_range_mm      = 250.0;
+    s_state.travel_range_known   = true;
     s_state.master_speed_rps     = 0.0f;
     s_state.motor_state          = "Idle";
     s_state.last_event           = "Homing complete";
@@ -328,12 +340,9 @@ static void abort_homing(void)
     s_homing_active = false;
     s_run_active    = false;
     s_state.machine_state        = HMI_MACHINE_HOMING_REQUIRED;
-    s_state.homing_state         = HMI_HOMING_REQUIRED;
-    s_state.homing_step          = "Ready to start";
+    s_state.machine_state_known  = true;
     s_state.master_speed_rps     = 0.0f;
     s_state.carriage_position_mm = 0.0f;
-    s_state.left_limit_active    = false;
-    s_state.right_limit_active   = false;
     s_state.motor_state          = "Idle";
     s_state.last_event           = "Homing aborted";
     publish_state();
@@ -343,23 +352,36 @@ static void start_run(const hmi_controller_job_payload_t *job)
 {
     float target_length = payload_float_by_key(job, "target_length", 120.0f);
     float master_speed  = payload_float_by_key(job, "master_speed",    2.5f);
+    float winding_pitch = payload_float_by_key(job, "winding_pitch",   0.0f);
 
     s_homing_active = false;
     s_run_active    = true;
     s_run_update_elapsed_ms = 0;
     s_state.machine_state           = HMI_MACHINE_RUNNING;
-    s_state.homing_state            = HMI_HOMING_OK;
+    s_state.machine_state_known     = true;
     s_state.job_state               = HMI_JOB_VALID;
     s_state.selected_mode           = active_mode_title(job->mode_id);
     s_state.wound_length_m          = 0.0f;
     s_state.target_length_m         = target_length;
+    s_state.target_length_known     = true;
     s_state.progress_percent        = 0.0f;
+    s_state.job_master_speed_rps    = master_speed;
+    s_state.job_master_speed_known  = true;
     s_state.master_speed_rps        = master_speed;
+    s_state.master_speed_known      = true;
+    s_state.winding_pitch_mm        = winding_pitch;
+    s_state.winding_pitch_known     = true;
     s_state.speed_override_percent  = 100.0f;
     s_state.current_layer           = 1;
     s_state.carriage_position_mm    = 0.0f;
-    s_state.travel_range_mm         = 250.0f;
+    s_state.travel_range_mm         = 250.0;
+    s_state.travel_range_known      = true;
     s_state.right_edge_offset_mm    = 0.0f;
+    s_state.active_left_edge_trim_mm = 0.0f;
+    s_state.active_left_edge_trim_known = true;
+    s_state.active_right_edge_trim_mm = 0.0f;
+    s_state.active_right_edge_trim_known = true;
+    s_edge_trim_staged = false;
     s_state.carriage_direction      = HMI_CARRIAGE_RIGHT;
     s_state.motor_state             = "Running";
     s_state.last_error              = NULL;
@@ -392,8 +414,10 @@ static void execute_pending_operation(void)
         publish_state();
         break;
     }
-    case MOCK_OP_START_JOB:
-        if (!s_job_valid && s_state.job_state != HMI_JOB_VALID) {
+    case MOCK_OP_START_JOB: {
+        hmi_job_validation_t validation;
+        s_job_valid = validate_job_payload(&s_pending_message.data.job, &validation);
+        if (!s_job_valid) {
             (void)winder_hmi_post_command_rejected(HMI_CMD_START_JOB, "Job is not valid");
         } else if (s_state.machine_state != HMI_MACHINE_READY) {
             (void)winder_hmi_post_command_rejected(HMI_CMD_START_JOB, "Machine is not ready");
@@ -402,6 +426,7 @@ static void execute_pending_operation(void)
             start_run(&s_pending_message.data.job);
         }
         break;
+    }
     case MOCK_OP_START_HOMING:
         if (s_state.machine_state == HMI_MACHINE_RUNNING ||
             s_state.machine_state == HMI_MACHINE_PAUSED) {
@@ -441,8 +466,7 @@ static void execute_pending_operation(void)
         if (s_state.machine_state == HMI_MACHINE_PAUSED) {
             (void)winder_hmi_post_command_accepted(HMI_CMD_RESUME_JOB);
             s_state.machine_state      = HMI_MACHINE_RUNNING;
-            s_state.master_speed_rps   =
-                payload_float_by_key(&s_pending_message.data.job, "master_speed", 2.5f);
+            s_state.master_speed_rps   = s_state.job_master_speed_rps;
             s_state.carriage_direction = HMI_CARRIAGE_RIGHT;
             s_state.motor_state        = "Running";
             s_state.last_event         = "Mock run resumed";
@@ -454,10 +478,25 @@ static void execute_pending_operation(void)
     case MOCK_OP_STOP_JOB:
         if (s_state.machine_state == HMI_MACHINE_RUNNING ||
             s_state.machine_state == HMI_MACHINE_PAUSED) {
-            (void)winder_hmi_post_command_accepted(HMI_CMD_STOP_JOB);
+            (void)winder_hmi_post_command_accepted(HMI_CMD_ABORT_JOB);
             stop_run();
         } else {
-            (void)winder_hmi_post_command_rejected(HMI_CMD_STOP_JOB, "No active job to stop");
+            (void)winder_hmi_post_command_rejected(HMI_CMD_ABORT_JOB, "No active job to stop");
+        }
+        break;
+    case MOCK_OP_RESET_JOB:
+        if (s_state.machine_state == HMI_MACHINE_FINISHED) {
+            (void)winder_hmi_post_command_accepted(HMI_CMD_RESET_JOB);
+            s_state.machine_state       = HMI_MACHINE_READY;
+            s_state.master_speed_rps    = 0.0f;
+            s_state.carriage_direction  = HMI_CARRIAGE_STOPPED;
+            s_state.motor_state         = "Idle";
+            s_state.last_event          = "Mock job reset";
+            publish_state();
+        } else {
+            (void)winder_hmi_post_command_rejected(
+                HMI_CMD_RESET_JOB,
+                "Job is not finished");
         }
         break;
     case MOCK_OP_RESET_UNWOUND_COUNTER:
@@ -478,7 +517,6 @@ static void execute_pending_operation(void)
         s_state.last_error = NULL;
         if (s_state.machine_state == HMI_MACHINE_ALARM) {
             s_state.machine_state = HMI_MACHINE_HOMING_REQUIRED;
-            s_state.homing_state  = HMI_HOMING_REQUIRED;
         }
         s_state.last_event = "Alarm reset";
         publish_state();
@@ -507,21 +545,28 @@ static void update_homing(uint32_t elapsed_ms)
         return;
     }
 
-    if (s_homing_elapsed_ms < 450U) {
-        s_state.homing_step          = "Moving to left limit";
+    if (s_homing_elapsed_ms < 200U) {
+        s_state.machine_state        = HMI_MACHINE_HOMING_SEARCHING_RIGHT_REFERENCE;
         s_state.carriage_position_mm = 125.0f - ((float)s_homing_elapsed_ms * 0.18f);
         if (s_state.carriage_position_mm < 0.0f) {
             s_state.carriage_position_mm = 0.0f;
         }
-        s_state.left_limit_active = false;
-    } else if (s_homing_elapsed_ms < 900U) {
-        s_state.homing_step          = "Backoff";
+    } else if (s_homing_elapsed_ms < 400U) {
+        s_state.machine_state        = HMI_MACHINE_HOMING_BACKING_OFF_RIGHT_REFERENCE;
         s_state.carriage_position_mm = 12.0f;
-        s_state.left_limit_active    = true;
-    } else {
-        s_state.homing_step          = "Slow approach";
+    } else if (s_homing_elapsed_ms < 600U) {
+        s_state.machine_state        = HMI_MACHINE_HOMING_SEARCHING_LEFT_REFERENCE;
         s_state.carriage_position_mm = 6.0f;
-        s_state.left_limit_active    = false;
+    } else if (s_homing_elapsed_ms < 800U) {
+        s_state.machine_state        = HMI_MACHINE_HOMING_BACKING_OFF_LEFT_REFERENCE;
+    } else if (s_homing_elapsed_ms < 1000U) {
+        s_state.machine_state        = HMI_MACHINE_HOMING_MEASURING_TRAVEL;
+        s_state.travel_range_mm      = 250.0;
+        s_state.travel_range_known   = true;
+    } else if (s_homing_elapsed_ms < 1200U) {
+        s_state.machine_state        = HMI_MACHINE_HOMING_APPLYING_OFFSET;
+    } else {
+        s_state.machine_state        = HMI_MACHINE_HOMING_COMPLETING;
     }
 }
 
@@ -552,12 +597,14 @@ static void update_run(uint32_t elapsed_ms)
         }
     }
 
+    bool reversed = false;
     if (s_state.carriage_direction == HMI_CARRIAGE_RIGHT) {
         s_state.carriage_position_mm += 12.0f;
-        if (s_state.carriage_position_mm >= s_state.travel_range_mm) {
-            s_state.carriage_position_mm = s_state.travel_range_mm;
+        if ((double)s_state.carriage_position_mm >= s_state.travel_range_mm) {
+            s_state.carriage_position_mm = (float)s_state.travel_range_mm;
             s_state.carriage_direction   = HMI_CARRIAGE_LEFT;
             s_state.current_layer++;
+            reversed = true;
         }
     } else {
         s_state.carriage_position_mm -= 12.0f;
@@ -565,10 +612,18 @@ static void update_run(uint32_t elapsed_ms)
             s_state.carriage_position_mm = 0.0f;
             s_state.carriage_direction   = HMI_CARRIAGE_RIGHT;
             s_state.current_layer++;
+            reversed = true;
         }
     }
 
-    s_state.right_edge_offset_mm = s_state.travel_range_mm - s_state.carriage_position_mm;
+    if (reversed && s_edge_trim_staged) {
+        s_state.active_left_edge_trim_mm = s_staged_left_edge_trim_mm;
+        s_state.active_right_edge_trim_mm = s_staged_right_edge_trim_mm;
+        s_edge_trim_staged = false;
+        s_state.last_event = "Staged edge trim activated";
+    }
+
+    s_state.right_edge_offset_mm = (float)(s_state.travel_range_mm - s_state.carriage_position_mm);
     s_state.eta_min = (s_state.target_length_m - s_state.wound_length_m) / 12.0f;
     if (s_state.eta_min < 0.0f) {
         s_state.eta_min = 0.0f;
@@ -586,15 +641,20 @@ static void update_run(uint32_t elapsed_ms)
     publish_state();
 }
 
-static bool mock_send(const hmi_controller_message_t *message, void *user_ctx)
+static bool mock_send(const hmi_controller_message_t *message, uint16_t seq, void *user_ctx)
 {
     (void)user_ctx;
+    (void)seq;
 
     if (!s_enabled || message == NULL) {
         return false;
     }
 
     if (message->type == HMI_CONTROLLER_MSG_GET_CAPABILITIES) {
+        return true;
+    }
+    if (message->type == HMI_CONTROLLER_MSG_GET_TELEMETRY) {
+        publish_state();
         return true;
     }
 
@@ -626,8 +686,11 @@ static bool mock_send(const hmi_controller_message_t *message, void *user_ctx)
     case HMI_CONTROLLER_MSG_RESUME_JOB:
         start_pending(MOCK_OP_RESUME_JOB, MOCK_SIMPLE_COMMAND_DELAY_MS, message);
         return true;
-    case HMI_CONTROLLER_MSG_STOP_JOB:
+    case HMI_CONTROLLER_MSG_ABORT_JOB:
         start_pending(MOCK_OP_STOP_JOB, MOCK_STOP_DELAY_MS, message);
+        return true;
+    case HMI_CONTROLLER_MSG_RESET_JOB:
+        start_pending(MOCK_OP_RESET_JOB, MOCK_SIMPLE_COMMAND_DELAY_MS, message);
         return true;
     case HMI_CONTROLLER_MSG_RESET_UNWOUND_COUNTER:
         start_pending(MOCK_OP_RESET_UNWOUND_COUNTER, MOCK_SIMPLE_COMMAND_DELAY_MS, message);
@@ -644,9 +707,30 @@ static bool mock_send(const hmi_controller_message_t *message, void *user_ctx)
         }
         return true;
     case HMI_CONTROLLER_MSG_APPLY_EDGE_TRIM:
+        if (s_state.machine_state != HMI_MACHINE_RUNNING &&
+            s_state.machine_state != HMI_MACHINE_PAUSED) {
+            (void)winder_hmi_post_command_rejected(
+                HMI_CMD_APPLY_EDGE_TRIM,
+                "Edge Trim is unavailable in this state");
+            return true;
+        }
+
         (void)winder_hmi_post_command_accepted(HMI_CMD_APPLY_EDGE_TRIM);
-        s_state.right_edge_offset_mm += message->data.edge_trim_mm;
-        s_state.last_event = "Edge trim applied";
+        if (s_state.machine_state == HMI_MACHINE_PAUSED) {
+            s_state.active_left_edge_trim_mm =
+                message->data.edge_trim.left_trim_mm;
+            s_state.active_right_edge_trim_mm =
+                message->data.edge_trim.right_trim_mm;
+            s_edge_trim_staged = false;
+            s_state.last_event = "Edge trim activated while paused";
+        } else {
+            s_staged_left_edge_trim_mm =
+                message->data.edge_trim.left_trim_mm;
+            s_staged_right_edge_trim_mm =
+                message->data.edge_trim.right_trim_mm;
+            s_edge_trim_staged = true;
+            s_state.last_event = "Edge trim staged for next reversal";
+        }
         publish_state();
         return true;
     case HMI_CONTROLLER_MSG_NONE:
@@ -672,6 +756,9 @@ void hmi_mock_controller_reset(void)
     s_pending_elapsed_ms    = 0;
     s_pending_delay_ms      = 0;
     s_pending_message       = (hmi_controller_message_t){0};
+    s_edge_trim_staged      = false;
+    s_staged_left_edge_trim_mm = 0.0f;
+    s_staged_right_edge_trim_mm = 0.0f;
 }
 
 void hmi_mock_controller_set_enabled(bool enabled)

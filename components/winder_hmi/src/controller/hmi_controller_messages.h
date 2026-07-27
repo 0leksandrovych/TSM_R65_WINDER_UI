@@ -21,13 +21,20 @@ typedef enum {
 
     HMI_CONTROLLER_MSG_PAUSE_JOB,
     HMI_CONTROLLER_MSG_RESUME_JOB,
-    HMI_CONTROLLER_MSG_STOP_JOB,
+    HMI_CONTROLLER_MSG_ABORT_JOB,
+    HMI_CONTROLLER_MSG_FINISH_JOB,
+    HMI_CONTROLLER_MSG_RESET_JOB,
 
     HMI_CONTROLLER_MSG_RESET_ALARM,
     HMI_CONTROLLER_MSG_RESET_UNWOUND_COUNTER,
 
     HMI_CONTROLLER_MSG_SET_SPEED_OVERRIDE,
-    HMI_CONTROLLER_MSG_APPLY_EDGE_TRIM
+    HMI_CONTROLLER_MSG_APPLY_EDGE_TRIM,
+    HMI_CONTROLLER_MSG_GET_TELEMETRY,
+
+    HMI_CONTROLLER_MSG_HOMING_NEXT_MEASUREMENT,
+    HMI_CONTROLLER_MSG_MOVE_CARRIAGE_TO_ZERO,
+    HMI_CONTROLLER_MSG_MOVE_CARRIAGE_TO_LEFT_EDGE
 } hmi_controller_msg_type_t;
 
 typedef enum {
@@ -44,7 +51,8 @@ typedef enum {
 } hmi_controller_event_type_t;
 
 typedef struct {
-    uint16_t param_id;
+    uint16_t wire_param_id;
+    double wire_scale;
     hmi_param_type_t type;
     hmi_param_value_t value;
 } hmi_controller_param_value_t;
@@ -56,11 +64,16 @@ typedef struct {
 } hmi_controller_job_payload_t;
 
 typedef struct {
+    float left_trim_mm;
+    float right_trim_mm;
+} hmi_controller_edge_trim_request_t;
+
+typedef struct {
     hmi_controller_msg_type_t type;
     union {
         hmi_controller_job_payload_t job;
         float speed_override_percent;
-        float edge_trim_mm;
+        hmi_controller_edge_trim_request_t edge_trim;
     } data;
 } hmi_controller_message_t;
 
@@ -85,3 +98,8 @@ bool hmi_controller_message_init(hmi_controller_message_t *out,
 bool hmi_controller_message_init_job(hmi_controller_message_t *out,
                                      hmi_controller_msg_type_t type,
                                      const hmi_controller_job_payload_t *job_payload);
+
+bool hmi_controller_message_init_edge_trim(
+    hmi_controller_message_t *out,
+    float left_trim_mm,
+    float right_trim_mm);

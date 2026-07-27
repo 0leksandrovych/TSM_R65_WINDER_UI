@@ -133,6 +133,6 @@ void screen_jobs_create(lv_obj_t *root)
 void screen_jobs_update(const hmi_state_t *state)
 {
     if (state != NULL) {
-        widget_status_badge_update(&s_screen.badge, state->machine_state);
+        widget_status_badge_update(&s_screen.badge, state);
     }
 }

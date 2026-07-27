@@ -26,8 +26,8 @@ typedef struct {
     hmi_stat_row_t mode;
     confirm_param_row_t params[CONFIRM_START_MAX_PARAMS];
     hmi_stat_row_t homing;
+    hmi_stat_row_t carriage;
     hmi_stat_row_t safety;
-    hmi_stat_row_t validation;
     lv_obj_t *message_label;
     lv_obj_t *start_button;
     lv_obj_t *start_label;
@@ -43,19 +43,62 @@ static void cancel_event_cb(lv_event_t *event)
 
 static bool can_start(const hmi_state_t *state)
 {
-    const hmi_job_validation_t *validation = hmi_job_draft_model_get_validation();
-    return state != NULL &&
-           state->homing_state == HMI_HOMING_OK &&
-           state->safety_ok &&
-           state->job_state == HMI_JOB_VALID &&
+    const hmi_job_validation_t *validation =
+        hmi_job_draft_model_get_validation();
+
+    return hmi_state_can_start_job(state) &&
+           hmi_model_get_connection_state() == HMI_CONNECTION_CONNECTED &&
+           !hmi_pending_command_is_active() &&
+           hmi_job_draft_model_get_mode() != HMI_JOB_MODE_NONE &&
+           validation != NULL &&
            validation->valid;
+}
+
+static const char *start_block_reason(const hmi_state_t *state)
+{
+    if (state == NULL || !state->machine_state_known) {
+        return "Machine state unavailable.";
+    }
+    if (!state->carriage_reference_position_known ||
+        state->carriage_reference_position == HMI_CARRIAGE_POSITION_UNKNOWN) {
+        return "Carriage position unavailable.";
+    }
+    if (state->carriage_reference_position == HMI_CARRIAGE_POSITION_LEFT_EDGE) {
+        return "Return carriage to zero before starting.";
+    }
+    if (state->carriage_reference_position == HMI_CARRIAGE_POSITION_MOVING ||
+        hmi_machine_state_is_positioning(state->machine_state)) {
+        return "Wait until carriage positioning completes.";
+    }
+    if (state->machine_state != HMI_MACHINE_READY) {
+        return "Machine is not ready to start.";
+    }
+    if (hmi_job_draft_model_get_mode() == HMI_JOB_MODE_NONE) {
+        return "Configure a winding job first.";
+    }
+    const hmi_job_validation_t *validation =
+        hmi_job_draft_model_get_validation();
+    if (validation == NULL || !validation->valid) {
+        return validation != NULL && validation->message[0] != '\0' ?
+            validation->message : "Local job validation is required.";
+    }
+    if (!state->safety_ok) {
+        return "Safety circuit is not ready.";
+    }
+    if (hmi_model_get_connection_state() != HMI_CONNECTION_CONNECTED) {
+        return "Controller is not connected.";
+    }
+    if (hmi_pending_command_is_active()) {
+        return hmi_pending_command_get_message();
+    }
+    return "Start winding is unavailable.";
 }
 
 static void start_event_cb(lv_event_t *event)
 {
     (void)event;
     if (can_start(hmi_model_get_state())) {
-        hmi_actions_confirm_start_job();
+        hmi_actions_start_job();
     }
 }
 
@@ -74,20 +117,10 @@ static void set_button_dimmed(lv_obj_t *button, bool dimmed)
     }
 }
 
-static const char *homing_text(hmi_homing_state_t state)
+static const char *homing_text(const hmi_state_t *state)
 {
-    return state == HMI_HOMING_OK ? "OK" : "REQUIRED";
-}
-
-static const char *job_text(hmi_job_state_t state)
-{
-    if (state == HMI_JOB_VALID) {
-        return "VALID";
-    }
-    if (state == HMI_JOB_INVALID) {
-        return "INVALID";
-    }
-    return "NOT VALIDATED";
+    return state != NULL && state->machine_state_known &&
+           state->machine_state == HMI_MACHINE_READY ? "OK" : "REQUIRED";
 }
 
 static void back_event_cb(lv_event_t *event)
@@ -204,8 +237,8 @@ void screen_confirm_start_create(lv_obj_t *root)
 
     lv_obj_t *ready = create_panel(content, 378, "READINESS");
     widget_stat_row_create(ready, &s_screen.homing, "Homing");
+    widget_stat_row_create(ready, &s_screen.carriage, "Carriage reference");
     widget_stat_row_create(ready, &s_screen.safety, "Safety");
-    widget_stat_row_create(ready, &s_screen.validation, "Job validation");
 
     s_screen.message_label = lv_label_create(ready);
     lv_obj_add_style(s_screen.message_label, &styles->status_text, 0);
@@ -243,13 +276,14 @@ void screen_confirm_start_update(const hmi_state_t *state)
         return;
     }
 
+    (void)hmi_job_draft_model_validate_local();
+
     char text[48];
-    const hmi_job_validation_t *validation = hmi_job_draft_model_get_validation();
     const hmi_mode_capability_t *mode =
         hmi_capability_model_get_mode_by_id(hmi_job_draft_model_get_mode());
     bool start_pending = hmi_pending_command_get() == HMI_PENDING_START_JOB;
 
-    widget_status_badge_update(&s_screen.badge, state->machine_state);
+    widget_status_badge_update(&s_screen.badge, state);
     widget_stat_row_set_value(&s_screen.mode,
                               mode != NULL && mode->title != NULL ? mode->title : "--",
                               HMI_COLOR_BLUE);
@@ -268,21 +302,30 @@ void screen_confirm_start_update(const hmi_state_t *state)
         }
     }
 
-    widget_stat_row_set_value(&s_screen.homing, homing_text(state->homing_state),
-                              state->homing_state == HMI_HOMING_OK ? HMI_COLOR_GREEN : HMI_COLOR_AMBER);
+    widget_stat_row_set_value(&s_screen.homing, homing_text(state),
+                              state->machine_state_known && state->machine_state == HMI_MACHINE_READY ?
+                              HMI_COLOR_GREEN : HMI_COLOR_AMBER);
+    widget_stat_row_set_value(
+        &s_screen.carriage,
+        state->carriage_reference_position_known ?
+            hmi_carriage_reference_position_text(state->carriage_reference_position) : "--",
+        state->carriage_reference_position_known &&
+            state->carriage_reference_position == HMI_CARRIAGE_POSITION_ZERO ?
+                HMI_COLOR_GREEN :
+                (state->carriage_reference_position_known ? HMI_COLOR_AMBER : HMI_COLOR_DIM));
     widget_stat_row_set_value(&s_screen.safety, state->safety_ok ? "OK" : "FAULT",
                               state->safety_ok ? HMI_COLOR_GREEN : HMI_COLOR_RED);
-    widget_stat_row_set_value(&s_screen.validation, job_text(state->job_state),
-                              state->job_state == HMI_JOB_VALID ? HMI_COLOR_GREEN : HMI_COLOR_RED);
 
     lv_label_set_text(s_screen.message_label,
                       start_pending ? hmi_pending_command_get_message() :
-                      (validation->message[0] != '\0' ? validation->message : "--"));
+                      (can_start(state) ?
+                        "Review parameters, then press START WINDING." :
+                        start_block_reason(state)));
     lv_obj_set_style_text_color(s_screen.message_label,
                                 can_start(state) && !start_pending ? hmi_palette_get()->green : hmi_palette_get()->amber,
                                 0);
 
-    bool ready = can_start(state) && !start_pending;
+    bool ready = can_start(state);
     set_button_dimmed(s_screen.start_button, !ready);
     if (s_screen.start_label != NULL) {
         lv_label_set_text(s_screen.start_label, start_pending ? "STARTING..." : "START WINDING");

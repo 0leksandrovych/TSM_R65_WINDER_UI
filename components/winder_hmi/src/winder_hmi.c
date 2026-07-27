@@ -8,6 +8,7 @@
 #include "hmi_config.h"
 #include "hmi_coordinator.h"
 #include "hmi_controller_client.h"
+#include "hmi_controller_rx_handler.h"
 #include "hmi_controller_transport.h"
 #include "hmi_event_queue.h"
 #include "hmi_job_draft_model.h"
@@ -20,10 +21,25 @@
 
 static lv_timer_t *s_tick_timer;
 static bool s_demo_enabled;
+static uint32_t s_last_telemetry_request_ms;
 
 static inline uint32_t hmi_now_ms(void)
 {
     return (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS);
+}
+
+static void poll_controller_telemetry(uint32_t now_ms)
+{
+    const hmi_connection_state_t connection = hmi_model_get_connection_state();
+    if ((connection != HMI_CONNECTION_CONNECTING &&
+         connection != HMI_CONNECTION_CONNECTED) ||
+        (now_ms - s_last_telemetry_request_ms) < HMI_TELEMETRY_POLL_INTERVAL_MS) {
+        return;
+    }
+
+    if (hmi_controller_client_request_telemetry()) {
+        s_last_telemetry_request_ms = now_ms;
+    }
 }
 
 static void hmi_tick_timer_cb(lv_timer_t *timer)
@@ -115,6 +131,34 @@ void winder_hmi_enable_demo_mode(bool enabled)
     }
 }
 
+bool winder_hmi_use_uart_controller(const winder_hmi_uart_controller_config_t *config)
+{
+    if (config == NULL) {
+        return false;
+    }
+
+    hmi_uart_transport_config_t uart_config = {
+        .uart_num = (uart_port_t)config->uart_num,
+        .tx_gpio = config->tx_gpio,
+        .rx_gpio = config->rx_gpio,
+        .baud_rate = config->baud_rate,
+        .rx_buffer_size = config->rx_buffer_size,
+        .tx_buffer_size = config->tx_buffer_size,
+        .rx_task_stack_size = config->rx_task_stack_size,
+        .rx_task_priority = config->rx_task_priority,
+        .rx_callback = NULL,
+        .error_callback = NULL,
+        .user_ctx = NULL,
+    };
+
+    if (!hmi_controller_client_use_uart_transport(&uart_config)) {
+        return false;
+    }
+
+    hmi_model_set_connection_state(HMI_CONNECTION_CONNECTING);
+    return true;
+}
+
 void winder_hmi_set_command_callback(winder_hmi_command_cb_t callback, void *user_ctx)
 {
     hmi_command_bus_set_callback(callback, user_ctx);
@@ -183,6 +227,8 @@ bool winder_hmi_post_command_rejected(hmi_command_t command, const char *reason)
 void winder_hmi_tick(void)
 {
     uint32_t now_ms = hmi_now_ms();
+    poll_controller_telemetry(now_ms);
+    hmi_controller_rx_handler_process();
     process_internal_events();
     hmi_coordinator_on_tick(now_ms);
     if (s_demo_enabled) {

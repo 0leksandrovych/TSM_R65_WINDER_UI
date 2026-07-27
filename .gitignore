@@ -107,3 +107,7 @@ temp/
 
 .env
 .env.*
+diff.patch
+node_modules/
+repo_changes_for_agent.txt
+git_review_log.txt

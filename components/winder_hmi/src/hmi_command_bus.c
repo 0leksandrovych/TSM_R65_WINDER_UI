@@ -63,10 +63,11 @@ void hmi_command_bus_clear_listeners(void)
  * Listeners must not block — they run in the LVGL/UI context.
  * The public callback is a debug/notification hook only; it must not be used as
  * a second command execution path. */
-void hmi_command_bus_emit(hmi_command_t command, const hmi_command_payload_t *payload)
+bool hmi_command_bus_emit(hmi_command_t command, const hmi_command_payload_t *payload)
 {
     hmi_command_payload_t empty_payload = {0};
     const hmi_command_payload_t *safe_payload = payload != NULL ? payload : &empty_payload;
+    bool accepted = false;
 
     if (s_callback != NULL) {
         s_callback(command, safe_payload, s_callback_ctx);
@@ -74,7 +75,12 @@ void hmi_command_bus_emit(hmi_command_t command, const hmi_command_payload_t *pa
 
     for (size_t i = 0; i < s_listener_count; i++) {
         if (s_listeners[i].fn != NULL) {
-            s_listeners[i].fn(command, safe_payload, s_listeners[i].user_ctx);
+            accepted = s_listeners[i].fn(
+                command,
+                safe_payload,
+                s_listeners[i].user_ctx) || accepted;
         }
     }
+
+    return accepted;
 }

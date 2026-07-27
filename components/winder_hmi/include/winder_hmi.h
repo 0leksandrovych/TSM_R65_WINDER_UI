@@ -1,5 +1,9 @@
 #pragma once
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
 #include "lvgl.h"
 
 #include "hmi_events.h"
@@ -16,8 +20,20 @@ typedef void (*winder_hmi_command_cb_t)(
     void *user_ctx
 );
 
+typedef struct {
+    int uart_num;
+    int tx_gpio;
+    int rx_gpio;
+    int baud_rate;
+    size_t rx_buffer_size;
+    size_t tx_buffer_size;
+    uint32_t rx_task_stack_size;
+    uint32_t rx_task_priority;
+} winder_hmi_uart_controller_config_t;
+
 void winder_hmi_init(lv_obj_t *root);
 void winder_hmi_enable_demo_mode(bool enabled);
+bool winder_hmi_use_uart_controller(const winder_hmi_uart_controller_config_t *config);
 void winder_hmi_set_command_callback(winder_hmi_command_cb_t callback, void *user_ctx);
 void winder_hmi_set_state(const hmi_state_t *state);
 bool winder_hmi_post_state(const hmi_state_t *state);

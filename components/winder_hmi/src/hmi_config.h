@@ -3,15 +3,19 @@
 /* HMI UI tick period in milliseconds.
  * Drives the LVGL timer callback and the mock controller simulation step.
  *
- * IMPORTANT: UART RX/TX must NOT be tied to this period.
- * Future UART transport must be task/event-driven and must not be polled
- * by the HMI UI tick. */
+ * IMPORTANT: UART byte reception and response processing must not be polled
+ * by the HMI UI tick. Higher-level requests may be scheduled here with their
+ * own throttle; RX remains task/event-driven. */
 #define HMI_TICK_PERIOD_MS              100U
 #define HMI_MOCK_TICK_PERIOD_MS         HMI_TICK_PERIOD_MS
 
+/* Schedules a current-state request from the HMI context. UART byte handling
+ * remains task/event-driven and is not polled by the UI tick. */
+#define HMI_TELEMETRY_POLL_INTERVAL_MS  200U
+
 /* Internal event queue capacity.
  * Fixed static allocation via xQueueCreateStatic — never resized at runtime. */
-#define HMI_EVENT_QUEUE_LENGTH          12U
+#define HMI_EVENT_QUEUE_LENGTH          25U
 
 /* Maximum internal events processed per LVGL tick.
  * Prevents a burst of queued events from monopolizing the UI context;
@@ -25,7 +29,7 @@
  *   [2] optional test hook
  *   [3] spare
  * Fixed static array — no dynamic allocation. */
-#define HMI_COMMAND_BUS_MAX_LISTENERS   4U
+#define HMI_COMMAND_BUS_MAX_LISTENERS   8U
 
 /* Pending command timeout constants (milliseconds).
  * Used to detect lost ACK/REJECT responses before UART is implemented.

@@ -13,6 +13,15 @@ typedef struct {
 
 static hmi_pending_command_state_t s_state;
 
+typedef struct {
+    hmi_edge_trim_pair_t pending;
+    hmi_edge_trim_pair_t candidate;
+    bool pending_valid;
+    bool candidate_valid;
+} hmi_edge_trim_pending_state_t;
+
+static hmi_edge_trim_pending_state_t s_edge_trim;
+
 void hmi_pending_command_clear(void)
 {
     s_state = (hmi_pending_command_state_t){0};
@@ -67,4 +76,69 @@ uint32_t hmi_pending_command_elapsed_ms(uint32_t now_ms)
         return 0;
     }
     return now_ms - s_state.started_at_ms;
+}
+
+void hmi_edge_trim_pending_clear(void)
+{
+    s_edge_trim = (hmi_edge_trim_pending_state_t){0};
+}
+
+void hmi_edge_trim_pending_stage_candidate(int32_t left_centi_mm,
+                                           int32_t right_centi_mm)
+{
+    s_edge_trim.candidate = (hmi_edge_trim_pair_t){
+        .left_centi_mm = left_centi_mm,
+        .right_centi_mm = right_centi_mm,
+    };
+    s_edge_trim.candidate_valid = true;
+}
+
+void hmi_edge_trim_pending_accept_candidate(void)
+{
+    if (!s_edge_trim.candidate_valid) {
+        return;
+    }
+
+    s_edge_trim.pending = s_edge_trim.candidate;
+    s_edge_trim.pending_valid = true;
+    s_edge_trim.candidate_valid = false;
+}
+
+void hmi_edge_trim_pending_reject_candidate(void)
+{
+    s_edge_trim.candidate = (hmi_edge_trim_pair_t){0};
+    s_edge_trim.candidate_valid = false;
+}
+
+bool hmi_edge_trim_pending_has_candidate(void)
+{
+    return s_edge_trim.candidate_valid;
+}
+
+bool hmi_edge_trim_pending_is_valid(void)
+{
+    return s_edge_trim.pending_valid;
+}
+
+bool hmi_edge_trim_pending_get(hmi_edge_trim_pair_t *out_pair)
+{
+    if (out_pair == NULL || !s_edge_trim.pending_valid) {
+        return false;
+    }
+
+    *out_pair = s_edge_trim.pending;
+    return true;
+}
+
+void hmi_edge_trim_pending_reconcile(int32_t active_left_centi_mm,
+                                     int32_t active_right_centi_mm)
+{
+    if (!s_edge_trim.pending_valid ||
+        s_edge_trim.pending.left_centi_mm != active_left_centi_mm ||
+        s_edge_trim.pending.right_centi_mm != active_right_centi_mm) {
+        return;
+    }
+
+    s_edge_trim.pending = (hmi_edge_trim_pair_t){0};
+    s_edge_trim.pending_valid = false;
 }
