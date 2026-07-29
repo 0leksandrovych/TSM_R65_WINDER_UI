@@ -18,6 +18,7 @@ typedef enum {
     HMI_CONTROLLER_LINK_DECODED_NONE = 0,
     HMI_CONTROLLER_LINK_DECODED_COMMAND_ACCEPTED,
     HMI_CONTROLLER_LINK_DECODED_COMMAND_REJECTED,
+    HMI_CONTROLLER_LINK_DECODED_RESUME_REJECTED,
     HMI_CONTROLLER_LINK_DECODED_STATE_SNAPSHOT,
 } hmi_controller_link_decoded_type_t;
 
@@ -31,6 +32,10 @@ typedef struct {
     winder_link_msg_type_t original_type;
     uint16_t reason_code;
 } hmi_controller_link_command_rejected_t;
+
+typedef struct {
+    uint16_t reason_code;
+} hmi_controller_link_resume_rejected_t;
 
 typedef struct {
     bool machine_state_present;
@@ -86,6 +91,9 @@ typedef struct {
 
     bool job_right_edge_shift_present;
     double job_right_edge_shift;
+
+    bool job_pause_reason_present;
+    uint32_t job_pause_reason;
 } hmi_controller_link_state_snapshot_t;
 
 typedef struct {
@@ -93,6 +101,7 @@ typedef struct {
     union {
         hmi_controller_link_command_accepted_t command_accepted;
         hmi_controller_link_command_rejected_t command_rejected;
+        hmi_controller_link_resume_rejected_t resume_rejected;
         hmi_controller_link_state_snapshot_t state_snapshot;
     } data;
 } hmi_controller_link_decoded_t;

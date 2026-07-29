@@ -21,3 +21,4 @@ typedef struct {
 
 void modal_numeric_keypad_open(lv_obj_t *parent, const modal_numeric_keypad_config_t *config);
 void modal_numeric_keypad_close(void);
+bool modal_numeric_keypad_is_open(void);

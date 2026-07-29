@@ -10,6 +10,11 @@ typedef struct {
 
 static confirm_modal_t s_modal;
 
+bool modal_confirm_is_open(void)
+{
+    return s_modal.overlay != NULL && lv_obj_is_valid(s_modal.overlay);
+}
+
 static void reset_modal_state(void)
 {
     s_modal = (confirm_modal_t){0};

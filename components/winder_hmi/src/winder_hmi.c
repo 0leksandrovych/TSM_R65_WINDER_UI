@@ -13,6 +13,7 @@
 #include "hmi_event_queue.h"
 #include "hmi_job_draft_model.h"
 #include "hmi_model.h"
+#include "hmi_paused_job_draft_model.h"
 #include "hmi_mock_controller.h"
 #include "hmi_navigation.h"
 #include "hmi_styles.h"
@@ -70,6 +71,9 @@ static void handle_internal_event(const hmi_internal_event_t *event)
     case HMI_INTERNAL_EVENT_COMMAND_REJECTED:
         hmi_coordinator_on_command_rejected(&event->data.command_rejected);
         break;
+    case HMI_INTERNAL_EVENT_RESUME_REJECTED:
+        hmi_coordinator_on_resume_rejected(event->data.resume_rejected_reason);
+        break;
     case HMI_INTERNAL_EVENT_CONNECTION_STATE_CHANGED:
         hmi_coordinator_on_connection_changed(event->data.connection);
         break;
@@ -105,6 +109,7 @@ void winder_hmi_init(lv_obj_t *root)
     hmi_model_init();
     hmi_capability_model_init_demo();
     hmi_job_draft_model_init();
+    hmi_paused_job_draft_model_init();
     hmi_coordinator_init();
     hmi_mock_controller_init();
     hmi_controller_client_init();

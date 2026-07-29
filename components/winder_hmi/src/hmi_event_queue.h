@@ -13,6 +13,7 @@ typedef enum {
     HMI_INTERNAL_EVENT_COMMAND_ACCEPTED,
     HMI_INTERNAL_EVENT_JOB_VALIDATION_RESULT,
     HMI_INTERNAL_EVENT_COMMAND_REJECTED,
+    HMI_INTERNAL_EVENT_RESUME_REJECTED,
     HMI_INTERNAL_EVENT_CONNECTION_STATE_CHANGED
 } hmi_internal_event_type_t;
 
@@ -23,6 +24,7 @@ typedef struct {
         hmi_command_t command_accepted;
         hmi_job_validation_t validation;
         hmi_command_rejected_t command_rejected;
+        uint16_t resume_rejected_reason;
         hmi_connection_state_t connection;
     } data;
 } hmi_internal_event_t;

@@ -6,7 +6,9 @@
 #include "hmi_job_draft_model.h"
 #include "hmi_model.h"
 #include "hmi_navigation.h"
+#include "hmi_paused_job_draft_model.h"
 #include "hmi_pending_command.h"
+#include "winder_link_contract.h"
 
 static char s_command_rejected_reason[HMI_TEXT_MESSAGE_MAX];
 static const char s_timeout_reason[] = "Controller response timeout";
@@ -37,6 +39,8 @@ static hmi_pending_command_t expected_pending_for_command(hmi_command_t command)
         return HMI_PENDING_START_JOB;
     case HMI_CMD_PAUSE_JOB:
         return HMI_PENDING_PAUSE_JOB;
+    case HMI_CMD_UPDATE_PAUSED_JOB:
+        return HMI_PENDING_UPDATE_PAUSED_JOB;
     case HMI_CMD_RESUME_JOB:
         return HMI_PENDING_RESUME_JOB;
     case HMI_CMD_ABORT_JOB:
@@ -66,6 +70,9 @@ static void handle_alarm_interrupt(const hmi_state_t *state)
     if (state->machine_state == HMI_MACHINE_ALARM) {
         if (hmi_pending_command_get() == HMI_PENDING_EDGE_TRIM) {
             hmi_edge_trim_pending_reject_candidate();
+        }
+        if (hmi_pending_command_get() == HMI_PENDING_UPDATE_PAUSED_JOB) {
+            hmi_paused_job_draft_model_reject_update();
         }
         hmi_pending_command_clear();
     }
@@ -117,8 +124,17 @@ void hmi_coordinator_on_state_update(const hmi_state_t *state)
                         previous_state->machine_state_known &&
                         previous_state->machine_state == HMI_MACHINE_FINISHED;
 
-    hmi_model_set_state(state);
+    hmi_state_t normalized_state = *state;
+    if (normalized_state.machine_state_known &&
+        normalized_state.machine_state != HMI_MACHINE_PAUSED) {
+        normalized_state.pause_reason = HMI_JOB_PAUSE_REASON_NONE;
+        normalized_state.pause_reason_known = false;
+    }
+
+    hmi_model_set_state(&normalized_state);
     const hmi_state_t *current_state = hmi_model_get_state();
+
+    hmi_paused_job_draft_model_sync(current_state);
 
     if (current_state->active_left_edge_trim_known &&
         current_state->active_right_edge_trim_known) {
@@ -134,6 +150,7 @@ void hmi_coordinator_on_state_update(const hmi_state_t *state)
                             !was_finished;
     if (entered_finished &&
         hmi_navigation_current() != HMI_SCREEN_FINISHED) {
+        hmi_paused_job_draft_model_reset();
         hmi_navigation_show(HMI_SCREEN_FINISHED);
         return;
     }
@@ -179,6 +196,13 @@ void hmi_coordinator_on_command_accepted(hmi_command_t command)
         return;
     }
 
+    if (command == HMI_CMD_UPDATE_PAUSED_JOB) {
+        hmi_paused_job_draft_model_accept_update();
+        hmi_pending_command_clear();
+        hmi_navigation_update(hmi_model_get_state());
+        return;
+    }
+
     if (command == HMI_CMD_START_JOB) {
         hmi_edge_trim_pending_clear();
     }
@@ -217,6 +241,32 @@ void hmi_coordinator_on_command_rejected(const hmi_command_rejected_t *rejected)
     if (rejected->command == HMI_CMD_APPLY_EDGE_TRIM) {
         hmi_edge_trim_pending_reject_candidate();
     }
+    if (rejected->command == HMI_CMD_UPDATE_PAUSED_JOB) {
+        hmi_paused_job_draft_model_reject_update();
+    }
+
+    hmi_state_t state = *hmi_model_get_state();
+    state.last_error = s_command_rejected_reason;
+    state.last_event = s_command_rejected_reason;
+    hmi_model_set_state(&state);
+    hmi_navigation_update(hmi_model_get_state());
+}
+
+void hmi_coordinator_on_resume_rejected(uint16_t reason_code)
+{
+    if (hmi_pending_command_is_active() &&
+        hmi_pending_command_get() == HMI_PENDING_RESUME_JOB) {
+        hmi_pending_command_clear();
+    }
+
+    const char *message =
+        reason_code == LINK_RESUME_REJECT_TARGET_REACHED
+            ? "Resume rejected: active target reached. Add at least 1 m, apply changes, then resume."
+            : "Resume rejected by controller";
+    snprintf(s_command_rejected_reason,
+             sizeof(s_command_rejected_reason),
+             "%s",
+             message);
 
     hmi_state_t state = *hmi_model_get_state();
     state.last_error = s_command_rejected_reason;
@@ -252,7 +302,9 @@ void hmi_coordinator_on_connection_changed(hmi_connection_state_t connection)
                            previous != HMI_CONNECTION_CONNECTED;
     if (session_changed) {
         hmi_edge_trim_pending_clear();
-        if (hmi_pending_command_get() == HMI_PENDING_EDGE_TRIM) {
+        hmi_paused_job_draft_model_reset();
+        if (hmi_pending_command_get() == HMI_PENDING_EDGE_TRIM ||
+            hmi_pending_command_get() == HMI_PENDING_UPDATE_PAUSED_JOB) {
             hmi_pending_command_clear();
         }
     }
@@ -272,6 +324,9 @@ void hmi_coordinator_on_tick(uint32_t now_ms)
 
     if (hmi_pending_command_get() == HMI_PENDING_EDGE_TRIM) {
         hmi_edge_trim_pending_reject_candidate();
+    }
+    if (hmi_pending_command_get() == HMI_PENDING_UPDATE_PAUSED_JOB) {
+        hmi_paused_job_draft_model_reject_update();
     }
     hmi_pending_command_clear();
 

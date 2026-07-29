@@ -251,12 +251,6 @@ void screen_confirm_start_create(lv_obj_t *root)
     lv_obj_set_flex_grow(spacer, 1);
     lv_obj_set_size(spacer, 0, 1);
 
-    lv_obj_t *note = lv_label_create(ready);
-    lv_obj_add_style(note, &styles->topbar_text, 0);
-    lv_label_set_long_mode(note, LV_LABEL_LONG_WRAP);
-    lv_obj_set_width(note, LV_PCT(100));
-    lv_label_set_text(note, "START WINDING emits HMI_CMD_START_JOB. Demo mode starts the mock run only.");
-
     lv_obj_t *buttons = lv_obj_create(root);
     lv_obj_remove_style_all(buttons);
     lv_obj_set_size(buttons, LV_PCT(100), 76);

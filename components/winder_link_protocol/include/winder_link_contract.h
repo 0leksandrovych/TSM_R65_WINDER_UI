@@ -16,17 +16,28 @@
  */
 
 #define LINK_START_JOB_PARAM_COUNT 5U
-#define LINK_MAX_JOB_PARAMS LINK_START_JOB_PARAM_COUNT
+#define LINK_UPDATE_PAUSED_JOB_PARAM_COUNT 6U
+#define LINK_MAX_JOB_PARAMS LINK_UPDATE_PAUSED_JOB_PARAM_COUNT
 #define LINK_START_JOB_PARAM_ENCODED_SIZE (2U + 4U)
 #define LINK_START_JOB_PAYLOAD_ENCODED_SIZE \
     (1U + (LINK_START_JOB_PARAM_COUNT * LINK_START_JOB_PARAM_ENCODED_SIZE))
+
+#define LINK_UPDATE_PAUSED_JOB_PAYLOAD_ENCODED_SIZE \
+    (1U + (LINK_UPDATE_PAUSED_JOB_PARAM_COUNT * \
+           LINK_START_JOB_PARAM_ENCODED_SIZE))
+
+/*
+ * UPDATE_PAUSED_JOB uses the keyed encoding in this canonical order:
+ * JOB_MASTER_SPEED, JOB_WINDING_PITCH, JOB_SHIFT_EVERY,
+ * JOB_RIGHT_EDGE_SHIFT, ADDITIONAL_LENGTH_PRESENT, ADDITIONAL_LENGTH_M.
+ */
 
 #define LINK_EDGE_TRIM_PARAM_COUNT 2U
 #define LINK_EDGE_TRIM_PAYLOAD_ENCODED_SIZE \
     (1U + (LINK_EDGE_TRIM_PARAM_COUNT * LINK_START_JOB_PARAM_ENCODED_SIZE))
 
 #define LINK_JOB_MASTER_SPEED_WIRE_MIN 10
-#define LINK_JOB_MASTER_SPEED_WIRE_MAX 1500
+#define LINK_JOB_MASTER_SPEED_WIRE_MAX 3000
 #define LINK_JOB_WINDING_PITCH_WIRE_MIN 10
 #define LINK_JOB_WINDING_PITCH_WIRE_MAX 3000
 #define LINK_JOB_TARGET_LENGTH_WIRE_MIN 1
@@ -37,13 +48,15 @@
 #define LINK_JOB_RIGHT_EDGE_SHIFT_WIRE_MAX 5000
 
 typedef enum {
-    LINK_PARAM_JOB_MASTER_SPEED     = 1, /* float, centi-rps, wire 10..1500 */
+    LINK_PARAM_JOB_MASTER_SPEED     = 1, /* float, centi-rps, wire 10..3000 */
     LINK_PARAM_JOB_WINDING_PITCH    = 2, /* float, centi-mm, wire 10..3000 */
     LINK_PARAM_JOB_TARGET_LENGTH    = 3, /* uint32, meters x1, wire 1..100000 */
     LINK_PARAM_JOB_SHIFT_EVERY      = 4, /* uint32, layers x1, wire 2..100 */
     LINK_PARAM_JOB_RIGHT_EDGE_SHIFT = 5, /* float, centi-mm, wire 6..5000 */
     LINK_PARAM_LEFT_EDGE_TRIM_MM    = 6, /* signed centi-mm */
     LINK_PARAM_RIGHT_EDGE_TRIM_MM   = 7, /* signed centi-mm */
+    LINK_PARAM_ADDITIONAL_LENGTH_PRESENT = 8, /* bool/code, scale x1 */
+    LINK_PARAM_ADDITIONAL_LENGTH_M = 9, /* float meters, scale x1000 -> mm */
 } link_param_id_t;
 
 typedef enum {
@@ -66,7 +79,19 @@ typedef enum {
     LINK_FIELD_HOMING_SAMPLE_TARGET_COUNT = 17, /* double, scale x1 -> samples */
     LINK_FIELD_ACTIVE_LEFT_EDGE_TRIM_MM = 18, /* double, x100 -> centi-mm      */
     LINK_FIELD_ACTIVE_RIGHT_EDGE_TRIM_MM = 19, /* double, x100 -> centi-mm     */
+    LINK_FIELD_JOB_PAUSE_REASON = 20, /* link_job_pause_reason_t, scale x1    */
 } link_field_id_t;
+
+typedef enum {
+    LINK_JOB_PAUSE_REASON_NONE             = 0,
+    LINK_JOB_PAUSE_REASON_OPERATOR         = 1,
+    LINK_JOB_PAUSE_REASON_TARGET_REACHED   = 2,
+    LINK_JOB_PAUSE_REASON_LENGTH_WATCHDOG  = 3,
+} link_job_pause_reason_t;
+
+typedef enum {
+    LINK_RESUME_REJECT_TARGET_REACHED = 1,
+} link_resume_reject_reason_t;
 
 typedef enum {
     LINK_MACHINE_STATE_HOMING_REQUIRED                  = 0,

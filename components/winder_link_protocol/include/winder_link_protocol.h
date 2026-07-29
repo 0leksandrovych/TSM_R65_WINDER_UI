@@ -70,6 +70,7 @@ typedef enum {
     WINDER_LINK_MSG_HOMING_NEXT_MEASUREMENT = 0x11,
     WINDER_LINK_MSG_MOVE_CARRIAGE_TO_ZERO   = 0x12,
     WINDER_LINK_MSG_MOVE_CARRIAGE_TO_LEFT_EDGE = 0x13,
+    WINDER_LINK_MSG_UPDATE_PAUSED_JOB       = 0x14,
 
     /* Controller → HMI responses / unsolicited messages */
     WINDER_LINK_MSG_PONG                  = 0x80,
@@ -80,6 +81,7 @@ typedef enum {
     WINDER_LINK_MSG_COMMAND_REJECTED      = 0x85,
     WINDER_LINK_MSG_JOB_VALIDATION_RESULT = 0x86,
     WINDER_LINK_MSG_ALARM_EVENT           = 0x87,
+    WINDER_LINK_MSG_RESUME_REJECTED       = 0x88,
 } winder_link_msg_type_t;
 
 /* --- Decoded frame --------------------------------------------------------- */

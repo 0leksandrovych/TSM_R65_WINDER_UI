@@ -7,6 +7,11 @@
 #include "winder_link_contract.h"
 #include "winder_link_payload.h"
 
+_Static_assert(LINK_UPDATE_PAUSED_JOB_PARAM_COUNT == 6U,
+               "paused job update must contain six parameters");
+_Static_assert(LINK_UPDATE_PAUSED_JOB_PAYLOAD_ENCODED_SIZE == 37U,
+               "paused job update payload must be exactly 37 bytes");
+
 typedef enum {
     SNAPSHOT_VALUE_MACHINE_STATE = 0,
     SNAPSHOT_VALUE_CARRIAGE_POSITION,
@@ -149,6 +154,13 @@ static const snapshot_field_binding_t snapshot_field_bindings[] = {
         offsetof(hmi_controller_link_state_snapshot_t, travel_range_mm_present),
         SNAPSHOT_VALUE_DOUBLE,
     },
+    {
+        LINK_FIELD_JOB_PAUSE_REASON,
+        1.0,
+        offsetof(hmi_controller_link_state_snapshot_t, job_pause_reason),
+        offsetof(hmi_controller_link_state_snapshot_t, job_pause_reason_present),
+        SNAPSHOT_VALUE_UINT32,
+    },
 };
 
 static bool encode_empty(
@@ -268,6 +280,65 @@ static bool encode_start_job(
     return true;
 }
 
+static bool write_keyed_i32(winder_link_payload_writer_t *writer,
+                            link_param_id_t param_id,
+                            int32_t scaled_value)
+{
+    return winder_link_payload_write_u16_le(writer, (uint16_t)param_id) &&
+           winder_link_payload_write_i32_le(writer, scaled_value);
+}
+
+static bool encode_paused_job_update(
+    const hmi_controller_message_t *message,
+    hmi_controller_link_encoded_t *out_encoded)
+{
+    const hmi_controller_paused_job_update_t *update =
+        &message->data.paused_job_update;
+    int32_t master_speed = 0;
+    int32_t winding_pitch = 0;
+    int32_t right_edge_shift = 0;
+    int32_t additional_length = 0;
+
+    if (update->shift_every_layers > (uint32_t)INT32_MAX ||
+        !scale_to_i32(update->master_speed_rps, 100.0, &master_speed) ||
+        !scale_to_i32(update->winding_pitch_mm, 100.0, &winding_pitch) ||
+        !scale_to_i32(update->right_edge_shift_mm, 100.0, &right_edge_shift) ||
+        !scale_to_i32(update->additional_length_present
+                          ? update->additional_length_m
+                          : 0.0,
+                      1000.0,
+                      &additional_length)) {
+        return false;
+    }
+
+    winder_link_payload_writer_t writer;
+    if (!winder_link_payload_writer_init(
+            &writer, out_encoded->payload, sizeof(out_encoded->payload)) ||
+        !winder_link_payload_write_u8(
+            &writer, LINK_UPDATE_PAUSED_JOB_PARAM_COUNT) ||
+        !write_keyed_i32(&writer, LINK_PARAM_JOB_MASTER_SPEED, master_speed) ||
+        !write_keyed_i32(&writer, LINK_PARAM_JOB_WINDING_PITCH, winding_pitch) ||
+        !write_keyed_i32(&writer,
+                         LINK_PARAM_JOB_SHIFT_EVERY,
+                         (int32_t)update->shift_every_layers) ||
+        !write_keyed_i32(&writer,
+                         LINK_PARAM_JOB_RIGHT_EDGE_SHIFT,
+                         right_edge_shift) ||
+        !write_keyed_i32(&writer,
+                         LINK_PARAM_ADDITIONAL_LENGTH_PRESENT,
+                         update->additional_length_present ? 1 : 0) ||
+        !write_keyed_i32(&writer,
+                         LINK_PARAM_ADDITIONAL_LENGTH_M,
+                         additional_length)) {
+        return false;
+    }
+
+    out_encoded->type = WINDER_LINK_MSG_UPDATE_PAUSED_JOB;
+    out_encoded->payload_len = winder_link_payload_writer_len(&writer);
+    return out_encoded->payload_len ==
+           LINK_UPDATE_PAUSED_JOB_PAYLOAD_ENCODED_SIZE;
+}
+
 static bool encode_edge_trim(
     const hmi_controller_message_t *message,
     hmi_controller_link_encoded_t *out_encoded)
@@ -359,6 +430,21 @@ static bool decode_command_rejected(
 
     out_decoded->type = HMI_CONTROLLER_LINK_DECODED_COMMAND_REJECTED;
     out_decoded->data.command_rejected = rejected;
+    return true;
+}
+
+static bool decode_resume_rejected(
+    winder_link_payload_reader_t *reader,
+    hmi_controller_link_decoded_t *out_decoded)
+{
+    hmi_controller_link_resume_rejected_t rejected = {0};
+    if (!winder_link_payload_read_u16_le(reader, &rejected.reason_code) ||
+        !winder_link_payload_reader_done(reader)) {
+        return false;
+    }
+
+    out_decoded->type = HMI_CONTROLLER_LINK_DECODED_RESUME_REJECTED;
+    out_decoded->data.resume_rejected = rejected;
     return true;
 }
 
@@ -509,6 +595,8 @@ bool hmi_controller_link_encode_message(
         return encode_speed_override(message, out_encoded);
     case HMI_CONTROLLER_MSG_START_JOB:
         return encode_start_job(message, out_encoded);
+    case HMI_CONTROLLER_MSG_UPDATE_PAUSED_JOB:
+        return encode_paused_job_update(message, out_encoded);
     case HMI_CONTROLLER_MSG_APPLY_EDGE_TRIM:
         return encode_edge_trim(message, out_encoded);
     case HMI_CONTROLLER_MSG_GET_TELEMETRY:
@@ -544,6 +632,8 @@ bool hmi_controller_link_decode_message(
         return decode_command_accepted(&reader, out_decoded);
     case WINDER_LINK_MSG_COMMAND_REJECTED:
         return decode_command_rejected(&reader, out_decoded);
+    case WINDER_LINK_MSG_RESUME_REJECTED:
+        return decode_resume_rejected(&reader, out_decoded);
     case WINDER_LINK_MSG_STATE_SNAPSHOT:
         return decode_state_snapshot(&reader, out_decoded);
     default:

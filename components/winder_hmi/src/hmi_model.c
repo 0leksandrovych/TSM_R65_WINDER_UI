@@ -13,6 +13,7 @@ void hmi_model_init(void)
     s_state.selected_mode = "Not selected";
     s_state.unwound_length_m = 0.0f;
     s_state.wound_length_m = 0.0f;
+    s_state.wound_length_known = false;
     s_state.target_length_m = 0.0f;
     s_state.target_length_known = false;
     s_state.progress_percent = 0.0f;
@@ -35,6 +36,12 @@ void hmi_model_init(void)
     s_state.master_speed_known = false;
     s_state.winding_pitch_mm = 0.0f;
     s_state.winding_pitch_known = false;
+    s_state.shift_every_layers = 0;
+    s_state.shift_every_layers_known = false;
+    s_state.job_right_edge_shift_mm = 0.0f;
+    s_state.job_right_edge_shift_known = false;
+    s_state.pause_reason = HMI_JOB_PAUSE_REASON_NONE;
+    s_state.pause_reason_known = false;
     s_state.speed_override_percent = 0.0f;
     s_state.right_edge_offset_mm = 0.0f;
     s_state.active_left_edge_trim_mm = 0.0f;
@@ -43,7 +50,6 @@ void hmi_model_init(void)
     s_state.active_right_edge_trim_known = false;
     s_state.eta_min = 0.0f;
     s_state.current_layer = 0;
-    s_state.shift_every_layers = 0;
     s_state.encoder_count = 0;
     s_state.carriage_direction = HMI_CARRIAGE_STOPPED;
     s_state.motor_state = "Idle";

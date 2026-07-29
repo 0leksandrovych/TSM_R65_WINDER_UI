@@ -55,6 +55,13 @@ typedef enum {
     HMI_CARRIAGE_POSITION_MOVING,
 } hmi_carriage_reference_position_t;
 
+typedef enum {
+    HMI_JOB_PAUSE_REASON_NONE = 0,
+    HMI_JOB_PAUSE_REASON_OPERATOR,
+    HMI_JOB_PAUSE_REASON_TARGET_REACHED,
+    HMI_JOB_PAUSE_REASON_LENGTH_WATCHDOG,
+} hmi_job_pause_reason_t;
+
 typedef struct {
     hmi_machine_state_t machine_state;
     bool machine_state_known;
@@ -62,6 +69,7 @@ typedef struct {
     const char *selected_mode;
     float unwound_length_m;
     float wound_length_m;
+    bool wound_length_known;
     float target_length_m;
     bool target_length_known;
     float progress_percent;
@@ -84,6 +92,12 @@ typedef struct {
     bool master_speed_known;
     float winding_pitch_mm;
     bool winding_pitch_known;
+    uint32_t shift_every_layers;
+    bool shift_every_layers_known;
+    float job_right_edge_shift_mm;
+    bool job_right_edge_shift_known;
+    hmi_job_pause_reason_t pause_reason;
+    bool pause_reason_known;
     float speed_override_percent;
     float right_edge_offset_mm;
     float active_left_edge_trim_mm;
@@ -92,7 +106,6 @@ typedef struct {
     bool active_right_edge_trim_known;
     float eta_min;
     uint32_t current_layer;
-    uint32_t shift_every_layers;
     uint32_t encoder_count;
     hmi_carriage_direction_t carriage_direction;
     const char *motor_state;

@@ -4,6 +4,7 @@
 #include "hmi_styles.h"
 #include "modal_confirm.h"
 #include "modal_numeric_keypad.h"
+#include "modal_paused_job_edit.h"
 #include "screen_diagnostics.h"
 #include "screen_confirm_start.h"
 #include "screen_conical_setup.h"
@@ -58,6 +59,7 @@ void hmi_navigation_show(hmi_screen_id_t screen_id)
         return;
     }
 
+    modal_paused_job_edit_close();
     modal_numeric_keypad_close();
     modal_confirm_close();
     prepare_root();

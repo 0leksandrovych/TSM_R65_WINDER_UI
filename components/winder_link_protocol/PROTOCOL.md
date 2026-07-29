@@ -92,6 +92,7 @@ HMI -> main controller:
 0x11  WINDER_LINK_MSG_HOMING_NEXT_MEASUREMENT
 0x12  WINDER_LINK_MSG_MOVE_CARRIAGE_TO_ZERO
 0x13  WINDER_LINK_MSG_MOVE_CARRIAGE_TO_LEFT_EDGE
+0x14  WINDER_LINK_MSG_UPDATE_PAUSED_JOB
 ```
 
 Main controller -> HMI:
@@ -105,6 +106,7 @@ Main controller -> HMI:
 0x85  WINDER_LINK_MSG_COMMAND_REJECTED
 0x86  WINDER_LINK_MSG_JOB_VALIDATION_RESULT
 0x87  WINDER_LINK_MSG_ALARM_EVENT
+0x88  WINDER_LINK_MSG_RESUME_REJECTED
 ```
 
 ## 6. Sequence Number Rule
@@ -180,6 +182,20 @@ reason_code     uint16 little-endian
 
 The base contract does not include string reason text. Reason text can be added later only as a bounded optional field if explicitly needed.
 
+### Runtime Resume rejection
+
+`COMMAND_ACCEPTED` for `WINDER_LINK_MSG_RESUME_JOB` only confirms publication
+of the runtime Resume event. If the active target has already been reached, the
+controller subsequently sends unsolicited `WINDER_LINK_MSG_RESUME_REJECTED`:
+
+```text
+reason_code     uint16 little-endian
+```
+
+Reason code `1` is `LINK_RESUME_REJECT_TARGET_REACHED`. This notification uses
+a controller-owned frame sequence and is not correlated to the original Resume
+command sequence.
+
 ## 8. Job Command Payload Contract
 
 Payload for `WINDER_LINK_MSG_START_JOB`:
@@ -198,6 +214,28 @@ a single job command with no mode dispatch.
 
 `WINDER_LINK_MSG_VALIDATE_JOB` is not implemented by the controller yet;
 this payload mapping does not apply to it until controller support exists.
+
+### Paused job update command
+
+`WINDER_LINK_MSG_UPDATE_PAUSED_JOB` contains exactly six keyed entries in this
+canonical order:
+
+```text
+Index  Parameter                                  Wire unit
+-----  -----------------------------------------  ----------
+0      LINK_PARAM_JOB_MASTER_SPEED (1)            centi-rps
+1      LINK_PARAM_JOB_WINDING_PITCH (2)           centi-mm
+2      LINK_PARAM_JOB_SHIFT_EVERY (4)              layers x1
+3      LINK_PARAM_JOB_RIGHT_EDGE_SHIFT (5)         centi-mm
+4      LINK_PARAM_ADDITIONAL_LENGTH_PRESENT (8)    x1
+5      LINK_PARAM_ADDITIONAL_LENGTH_M (9)          metres x1000
+```
+
+The payload is exactly 37 bytes: `param_count:u8 = 6`, followed by six
+`param_id:u16_le + scaled_value:i32_le` entries. Additional length is a one-shot
+addition from the actual wound length when the controller applies the paused
+update. It is not an absolute target, and this payload contains no absolute
+target-length parameter.
 
 ## 9. State Snapshot Payload Contract
 
@@ -236,6 +274,11 @@ Implemented field IDs:
                                       uint,      scale x1    -> samples
 17 LINK_FIELD_HOMING_SAMPLE_TARGET_COUNT
                                       uint,      scale x1    -> samples
+18 LINK_FIELD_ACTIVE_LEFT_EDGE_TRIM_MM
+                                      double,    scale x100  -> centi-mm
+19 LINK_FIELD_ACTIVE_RIGHT_EDGE_TRIM_MM
+                                      double,    scale x100  -> centi-mm
+20 LINK_FIELD_JOB_PAUSE_REASON         link_job_pause_reason_t, scale x1
 ```
 
 `LINK_FIELD_JOB_MASTER_SPEED` is the configured master speed from the active
@@ -286,6 +329,11 @@ after a return to `HOMING_REQUIRED` until the controller explicitly publishes 0.
 The left/right sample counts and target count are non-negative integer sample
 counts carried in the common signed `int32` snapshot slot at scale x1. Negative
 wire values are invalid and are not exposed as known HMI values.
+
+`LINK_FIELD_JOB_PAUSE_REASON` values are 0 no active reason, 1 operator pause,
+2 target reached, and 3 length progress watchdog. Active job parameters remain
+in fields 2 through 6; actual wound length is field 10 and the confirmed active
+absolute target is field 4.
 
 The numeric values of the machine-state enum are a stable part of the wire contract:
 

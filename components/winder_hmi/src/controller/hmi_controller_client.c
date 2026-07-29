@@ -12,6 +12,7 @@
 #include "hmi_controller_transport.h"
 #include "hmi_event_queue.h"
 #include "hmi_job_draft_model.h"
+#include "hmi_paused_job_draft_model.h"
 #include "winder_link_protocol.h"
 
 #define HMI_CONTROLLER_SEQ_TRACK_CAPACITY 8U
@@ -26,6 +27,7 @@ typedef struct {
 typedef enum {
     CMD_PAYLOAD_NONE,
     CMD_PAYLOAD_JOB,
+    CMD_PAYLOAD_PAUSED_JOB_UPDATE,
     CMD_PAYLOAD_SINGLE_FLOAT,
     CMD_PAYLOAD_EDGE_TRIM,
 } command_payload_kind_t;
@@ -62,6 +64,8 @@ static const command_binding_t s_command_bindings[] = {
       CMD_PAYLOAD_JOB, CMD_FLOAT_FIELD_NONE },
     { HMI_CMD_PAUSE_JOB,             HMI_CONTROLLER_MSG_PAUSE_JOB,
       CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
+    { HMI_CMD_UPDATE_PAUSED_JOB,     HMI_CONTROLLER_MSG_UPDATE_PAUSED_JOB,
+      CMD_PAYLOAD_PAUSED_JOB_UPDATE, CMD_FLOAT_FIELD_NONE },
     { HMI_CMD_RESUME_JOB,            HMI_CONTROLLER_MSG_RESUME_JOB,
       CMD_PAYLOAD_NONE, CMD_FLOAT_FIELD_NONE },
     { HMI_CMD_ABORT_JOB,             HMI_CONTROLLER_MSG_ABORT_JOB,
@@ -188,6 +192,9 @@ static bool command_for_wire_type(winder_link_msg_type_t type, hmi_command_t *ou
         return true;
     case WINDER_LINK_MSG_PAUSE_JOB:
         *out_command = HMI_CMD_PAUSE_JOB;
+        return true;
+    case WINDER_LINK_MSG_UPDATE_PAUSED_JOB:
+        *out_command = HMI_CMD_UPDATE_PAUSED_JOB;
         return true;
     case WINDER_LINK_MSG_RESUME_JOB:
         *out_command = HMI_CMD_RESUME_JOB;
@@ -346,6 +353,24 @@ static bool on_command(hmi_command_t command,
             &message,
             binding->message_type,
             &job);
+        break;
+    }
+    case CMD_PAYLOAD_PAUSED_JOB_UPDATE: {
+        hmi_paused_job_update_t update;
+        if (!hmi_paused_job_draft_model_get_update(&update)) {
+            (void)post_command_rejected(command, "Failed to build paused job update");
+            return false;
+        }
+        message.type = binding->message_type;
+        message.data.paused_job_update = (hmi_controller_paused_job_update_t){
+            .master_speed_rps = update.master_speed_rps,
+            .winding_pitch_mm = update.winding_pitch_mm,
+            .shift_every_layers = update.shift_every_layers,
+            .right_edge_shift_mm = update.right_edge_shift_mm,
+            .additional_length_present = update.additional_length_present,
+            .additional_length_m = update.additional_length_m,
+        };
+        ok = true;
         break;
     }
     case CMD_PAYLOAD_SINGLE_FLOAT: {

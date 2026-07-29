@@ -10,6 +10,7 @@
 #include "hmi_job_draft_model.h"
 #include "hmi_model.h"
 #include "hmi_navigation.h"
+#include "hmi_paused_job_draft_model.h"
 #include "hmi_pending_command.h"
 
 static inline uint32_t hmi_now_ms(void)
@@ -341,6 +342,10 @@ void hmi_actions_resume_job(void)
     if (state == NULL ||
         !state->machine_state_known ||
         state->machine_state != HMI_MACHINE_PAUSED ||
+        !state->wound_length_known ||
+        !state->target_length_known ||
+        !(state->target_length_m > state->wound_length_m) ||
+        hmi_paused_job_draft_model_update_awaiting_confirmation() ||
         hmi_pending_command_is_active() ||
         !hmi_command_bus_emit(HMI_CMD_RESUME_JOB, NULL)) {
         return;
@@ -349,6 +354,81 @@ void hmi_actions_resume_job(void)
     hmi_pending_command_set(HMI_PENDING_RESUME_JOB, "Resuming...",
                             hmi_now_ms(), HMI_PENDING_DEFAULT_TIMEOUT_MS);
     hmi_navigation_update(state);
+}
+
+bool hmi_actions_update_paused_job_param(uint16_t param_id, hmi_param_value_t value)
+{
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL || !state->machine_state_known ||
+        state->machine_state != HMI_MACHINE_PAUSED ||
+        hmi_paused_job_draft_model_update_awaiting_confirmation()) {
+        return false;
+    }
+    return hmi_paused_job_draft_model_set_value(param_id, value);
+}
+
+bool hmi_actions_set_additional_length(float length_m)
+{
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL || !state->machine_state_known ||
+        state->machine_state != HMI_MACHINE_PAUSED ||
+        hmi_paused_job_draft_model_update_awaiting_confirmation()) {
+        return false;
+    }
+    return hmi_paused_job_draft_model_set_additional_length_m(length_m);
+}
+
+void hmi_actions_clear_additional_length(void)
+{
+    if (!hmi_paused_job_draft_model_update_awaiting_confirmation()) {
+        hmi_paused_job_draft_model_clear_additional_length();
+    }
+}
+
+bool hmi_actions_apply_paused_job_changes(void)
+{
+    const hmi_state_t *state = hmi_model_get_state();
+    if (state == NULL || !state->machine_state_known ||
+        state->machine_state != HMI_MACHINE_PAUSED) {
+        show_action_error("Job changes are available only while paused");
+        return false;
+    }
+    if (hmi_model_get_connection_state() != HMI_CONNECTION_CONNECTED) {
+        show_action_error("Controller not connected");
+        return false;
+    }
+    if (hmi_pending_command_is_active() ||
+        hmi_paused_job_draft_model_update_awaiting_confirmation()) {
+        show_action_error("Another command is in progress");
+        return false;
+    }
+    if (!hmi_paused_job_draft_model_is_dirty()) {
+        show_action_error("No paused job changes to apply");
+        return false;
+    }
+
+    char validation_message[HMI_TEXT_MESSAGE_MAX];
+    if (!hmi_paused_job_draft_model_validate(validation_message,
+                                              sizeof(validation_message))) {
+        show_action_error(validation_message[0] != '\0'
+                              ? validation_message
+                              : "Paused job parameters are invalid");
+        return false;
+    }
+    if (!hmi_paused_job_draft_model_stage_update(state)) {
+        show_action_error("Active length telemetry is unavailable");
+        return false;
+    }
+    if (!hmi_command_bus_emit(HMI_CMD_UPDATE_PAUSED_JOB, NULL)) {
+        hmi_paused_job_draft_model_reject_update();
+        return false;
+    }
+
+    hmi_pending_command_set_default(HMI_PENDING_UPDATE_PAUSED_JOB,
+                                    "Applying job changes...",
+                                    hmi_now_ms());
+    hmi_navigation_update(state);
+    return true;
 }
 
 void hmi_actions_abort_job(void)

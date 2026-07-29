@@ -20,6 +20,7 @@ typedef enum {
     HMI_CONTROLLER_MSG_ABORT_HOMING,
 
     HMI_CONTROLLER_MSG_PAUSE_JOB,
+    HMI_CONTROLLER_MSG_UPDATE_PAUSED_JOB,
     HMI_CONTROLLER_MSG_RESUME_JOB,
     HMI_CONTROLLER_MSG_ABORT_JOB,
     HMI_CONTROLLER_MSG_FINISH_JOB,
@@ -64,6 +65,15 @@ typedef struct {
 } hmi_controller_job_payload_t;
 
 typedef struct {
+    float master_speed_rps;
+    float winding_pitch_mm;
+    uint32_t shift_every_layers;
+    float right_edge_shift_mm;
+    bool additional_length_present;
+    float additional_length_m;
+} hmi_controller_paused_job_update_t;
+
+typedef struct {
     float left_trim_mm;
     float right_trim_mm;
 } hmi_controller_edge_trim_request_t;
@@ -72,6 +82,7 @@ typedef struct {
     hmi_controller_msg_type_t type;
     union {
         hmi_controller_job_payload_t job;
+        hmi_controller_paused_job_update_t paused_job_update;
         float speed_override_percent;
         hmi_controller_edge_trim_request_t edge_trim;
     } data;

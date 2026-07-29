@@ -68,6 +68,15 @@ static bool post_connection_state(hmi_connection_state_t connection)
     return hmi_event_queue_post(&event);
 }
 
+static bool post_resume_rejected(uint16_t reason_code)
+{
+    hmi_internal_event_t event = {
+        .type = HMI_INTERNAL_EVENT_RESUME_REJECTED,
+        .data.resume_rejected_reason = reason_code,
+    };
+    return hmi_event_queue_post(&event);
+}
+
 static void on_uart_decoded_response(
     const hmi_controller_link_decoded_t *decoded,
     void *user_ctx)
@@ -199,9 +208,15 @@ static void handle_state_snapshot(
     }
     if (snapshot->job_shift_every_present) {
         state.shift_every_layers = (uint32_t)snapshot->job_shift_every;
+        state.shift_every_layers_known = true;
+    }
+    if (snapshot->job_right_edge_shift_present) {
+        state.job_right_edge_shift_mm = (float)snapshot->job_right_edge_shift;
+        state.job_right_edge_shift_known = true;
     }
     if (snapshot->wound_length_m_present) {
         state.wound_length_m = (float)snapshot->wound_length_m;
+        state.wound_length_known = true;
     }
     if (snapshot->completed_layers_present) {
         state.current_layer = (uint32_t)snapshot->completed_layers;
@@ -222,6 +237,18 @@ static void handle_state_snapshot(
     if (snapshot->travel_range_mm_present) {
         state.travel_range_mm = snapshot->travel_range_mm;
         state.travel_range_known = true;
+    }
+    if (snapshot->job_pause_reason_present) {
+        if (snapshot->job_pause_reason <=
+            (uint32_t)LINK_JOB_PAUSE_REASON_LENGTH_WATCHDOG) {
+            state.pause_reason =
+                (hmi_job_pause_reason_t)snapshot->job_pause_reason;
+            state.pause_reason_known = true;
+        } else {
+            ESP_LOGW(TAG,
+                     "Ignoring unsupported pause reason: %lu",
+                     (unsigned long)snapshot->job_pause_reason);
+        }
     }
 
     /* job_state, progress, override, error, and event are not
@@ -260,6 +287,9 @@ void hmi_controller_rx_handler_process(void)
             break;
         case HMI_CONTROLLER_LINK_DECODED_COMMAND_REJECTED:
             handle_command_rejected(&decoded.data.command_rejected);
+            break;
+        case HMI_CONTROLLER_LINK_DECODED_RESUME_REJECTED:
+            (void)post_resume_rejected(decoded.data.resume_rejected.reason_code);
             break;
         case HMI_CONTROLLER_LINK_DECODED_STATE_SNAPSHOT:
             handle_state_snapshot(&decoded.data.state_snapshot);

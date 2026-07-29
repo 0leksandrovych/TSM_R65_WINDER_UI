@@ -29,3 +29,4 @@ typedef struct {
 
 void modal_confirm_open(const modal_confirm_config_t *config);
 void modal_confirm_close(void);
+bool modal_confirm_is_open(void);
